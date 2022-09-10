@@ -1,4 +1,4 @@
-# Script to be called via SLURM
+# Script to be called via SLURM_m
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
