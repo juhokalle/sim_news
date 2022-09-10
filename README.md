@@ -1,1 +1,1 @@
-# sim_news
+# Folder for SLURM
