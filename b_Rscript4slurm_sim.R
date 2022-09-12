@@ -87,18 +87,11 @@ pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "g
 }
 
 tt = tt %>%
-  # template
-  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) 
-
-tt = tt %>% 
   slice((1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE):(params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE)) %>% 
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  mutate(theta_init = map(tmpl, ~get_init_armamod_whf_random(DATASET, .x))) #%>% 
-  #mutate(ll_fun_gaussian = map(tmpl, ~ll_whf_factory(data_wide = t(DATASET), tmpl = .x, shock_distr = "gaussian", use_cpp = TRUE)))
+  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) 
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
