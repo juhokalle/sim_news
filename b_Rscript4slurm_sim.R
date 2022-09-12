@@ -102,7 +102,7 @@ tt = tt %>%
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
-  select(theta_init, tmpl)
+  select(theta_init, tmpl, data_list)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])
@@ -111,7 +111,7 @@ hlp_parallel = function(list_input){
   return(create_results_list(theta_init = list_input[[1]], 
                              tmpl       = list_input[[2]],
                              params     = params, 
-                             DATASET    = DATASET[[3]]))
+                             DATASET    = list_input[[3]]))
 }
 
 
