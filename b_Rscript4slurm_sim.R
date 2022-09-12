@@ -1,4 +1,4 @@
-# Script to be called via SLURM_m
+# Script to be called via SLURM
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -16,10 +16,10 @@ params$IX_ARRAY_JOB = as.integer(args[2]) # index of array-job. Number of array-
 params$SLURM_JOB_ID = as.integer(args[3])
 params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
-params$FILE_NAME_INPUT = "../local_data/g_gmr_bq/data_xts.rds"
+params$FILE_NAME_INPUT = "./local_data/data_list.rds"
 
-params$AR_ORDER_MAX = 8
-params$MA_ORDER_MAX = 8
+params$AR_ORDER_MAX = 2
+params$MA_ORDER_MAX = 2
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
@@ -39,7 +39,7 @@ params$USE_NM_SGT = TRUE
 params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 
-params$PATH_RESULTS_HELPER = "../local_data/p_whf/ukko_bq_"
+params$PATH_RESULTS_HELPER = "./local_data/"
 
 
 cat("\n--------------------------------------------------\n")
@@ -61,12 +61,10 @@ void = lapply(pkgs, library, character.only = TRUE)
 # Data and derived PARAMETERS ####
 DATASET = readRDS(params$FILE_NAME_INPUT)
 
-DATASET = DATASET %>% as.matrix()
-DIM_OUT = dim(DATASET)[2]
+DIM_OUT = dim(DATASET$data_list[[1]])[2]
 params$DIM_OUT = DIM_OUT
-N_OBS = dim(DATASET)[1]
+N_OBS = dim(DATASET$data_list[[1]])[1]
 params$N_OBS = N_OBS
-
 
 # Tibble with integer-valued parameters
 tt = 
@@ -79,12 +77,20 @@ tt =
   unnest(n_unst) %>% 
   mutate(n_st = DIM_OUT * q - n_unst) %>% 
   mutate(kappa = n_unst %/% DIM_OUT,
-         k = n_unst %% DIM_OUT)
+         k = n_unst %% DIM_OUT) %>% 
+  filter(n_unst==1)
+tt <- expand_grid(DATASET, tt)
 
 # Select rows ####
 pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "gaussian", ...){
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
 }
+
+tt = tt %>%
+  # template
+  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
+  # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
+  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) 
 
 tt = tt %>% 
   slice((1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE):(params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE)) %>% 
@@ -92,7 +98,7 @@ tt = tt %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map(tmpl, ~get_init_armamod_whf_random(DATASET, .x))) #%>% 
-#mutate(ll_fun_gaussian = map(tmpl, ~ll_whf_factory(data_wide = t(DATASET), tmpl = .x, shock_distr = "gaussian", use_cpp = TRUE)))
+  #mutate(ll_fun_gaussian = map(tmpl, ~ll_whf_factory(data_wide = t(DATASET), tmpl = .x, shock_distr = "gaussian", use_cpp = TRUE)))
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
@@ -105,7 +111,7 @@ hlp_parallel = function(list_input){
   return(create_results_list(theta_init = list_input[[1]], 
                              tmpl       = list_input[[2]],
                              params     = params, 
-                             DATASET    = DATASET))
+                             DATASET    = DATASET[[3]]))
 }
 
 

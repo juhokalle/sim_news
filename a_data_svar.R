@@ -1,11 +1,11 @@
 # Packages ####
-pkgs <- c("lubridate", "xts", "RLDM", "parallel", "svarmawhf", "fitdistrplus", "sgt", "tidyverse")
+pkgs <- c("svars", "vars", "svarmawhf", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 # date_string <- Sys.time() %>% 
 #   str_remove_all(pattern = "-") %>%
 #   str_remove_all(pattern = ":") %>% 
 #   str_replace(pattern = " ", replacement = "_")
-print("hello")
+
 # Helper functions ####
 simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...) {
   
@@ -79,43 +79,15 @@ sim_news <- function(beta, rho, nobs, nu){
        mod = re_mod, 
        prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
 }
-permute_chgsign = function(irf_array, 
-                           perm = rep(1, dim(irf_array)[1]), 
-                           sign = rep(1, dim(irf_array)[1])){
-  
-  dim_out = dim(irf_array)[1]
-  
-  perm_mat = diag(dim_out)
-  perm_mat = perm_mat[,perm]
-  
-  sign = diag(sign)
-  
-  ll = map(1:dim(irf_array)[3], ~ irf_array[,,.x] %*% perm_mat %*% sign)
-  
-  irf_array = array(0, dim = c(dim_out, dim_out, dim(irf_array)[3]))
-  for (ix in 1:dim(irf_array)[3]){
-    irf_array[,,ix] = ll[[ix]] 
-  }
-  
-  return(irf_array)
-}
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "gaussian", ...){
-  tmpl_whf_rev(dim_out = params$DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
-}
-hlp_parallel = function(list_input){
-  return(create_results_list(theta_init = list_input[[1]], 
-                             tmpl = list_input[[2]],
-                             params = params,
-                             DATASET = list_input[[3]]))
-}
-rotmat <- function(x) matrix(c(cos(x), -sin(x), sin(x), cos(x)), 2,2)
 
+# Simulation params ####
 n_ahead = 12
 mc_n <- 101
 sim_prm <- expand.grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = c(3,12))
 data_list <- vector("list", mc_n*nrow(sim_prm))
 irf_svar <- array(NA, c(2,2,n_ahead+1,mc_n,nrow(sim_prm)))
 
+# Simulation and data save ####
 for(prm_ix in 1:nrow(sim_prm)){
   
   mc_ix <- 1
@@ -149,4 +121,5 @@ for(prm_ix in 1:nrow(sim_prm)){
   }
 }
 
-saveRDS(data_list, file = "~/Documents/Rscripts/sim_news/data_list.rds")
+data_list <- tibble(data_list, mc_ix = rep(1:mc_n, 4), prm_ix = rep(1:4, each = mc_n))
+saveRDS(data_list, file = "./local_data/data_list.rds")

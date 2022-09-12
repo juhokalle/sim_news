@@ -1,4 +1,28 @@
+# helper functions ####
+permute_chgsign = function(irf_array, 
+                           perm = rep(1, dim(irf_array)[1]), 
+                           sign = rep(1, dim(irf_array)[1])){
+  
+  dim_out = dim(irf_array)[1]
+  
+  perm_mat = diag(dim_out)
+  perm_mat = perm_mat[,perm]
+  
+  sign = diag(sign)
+  
+  ll = map(1:dim(irf_array)[3], ~ irf_array[,,.x] %*% perm_mat %*% sign)
+  
+  irf_array = array(0, dim = c(dim_out, dim_out, dim(irf_array)[3]))
+  for (ix in 1:dim(irf_array)[3]){
+    irf_array[,,ix] = ll[[ix]] 
+  }
+  
+  return(irf_array)
+}
+rotmat <- function(x) matrix(c(cos(x), -sin(x), sin(x), cos(x)), 2,2)
+
 # SVARMA ####
+
 tt = tt %>%
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
