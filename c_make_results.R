@@ -1,3 +1,25 @@
+# preliminaries ####
+main_path <- "local_data/jobid_20220912/"
+vec_files <- list.files(main_path)
+
+# modify file names such that they are ordered correctly 1,2,...
+for(ix_file in seq_along(vec_files)){
+  file_sub <- sub(".*_", "", sub("\\..*", "", vec_files[ix_file]))
+  if((nchar(file_sub)==1 && length(vec_files) < 100) || (nchar(file_sub)==2 && length(vec_files) >= 100)){
+    file_sub <- paste0("0", file_sub)
+  } else if(nchar(file_sub)==1 && length(vec_files) > 100){
+    file_sub <- paste0("00", file_sub)
+  }
+  file.rename(paste0(main_path, vec_files[ix_file]),
+              paste0(main_path, "arrayjob_", file_sub, ".rds"))
+}
+
+tibble_list = vector("list", length(vec_files))
+
+vec_files <- list.files(main_path)
+SCRIPT_PARAMS = readRDS(paste0(main_path, vec_files[1]))[[1]]$results_list$script_params
+DIM_OUT = SCRIPT_PARAMS$DIM_OUT
+
 # helper functions ####
 permute_chgsign = function(irf_array, 
                            perm = rep(1, dim(irf_array)[1]), 
@@ -19,47 +41,78 @@ permute_chgsign = function(irf_array,
   
   return(irf_array)
 }
-rotmat <- function(x) matrix(c(cos(x), -sin(x), sin(x), cos(x)), 2,2)
+rotmat <- function(x, n){
+  
+  rot_mat <- matrix(c(cos(x), -sin(x), sin(x), cos(x)), 2,2)
+  rot_ix <- combn(n,2)
+  final_mat <- diag(n)
+  
+  for(jj in 1:ncol(rot_ix)){
+    temp_mat <- diag(n)
+    temp_mat[rot_ix[,jj], rot_ix[,jj]] <- rot_mat
+    final_mat <- final_mat %*% temp_mat
+  }
+  
+  final_mat
+}
 
-# SVARMA ####
 
-tt = tt %>%
-  # template
-  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) 
+ff <- function(x){
+  abs(input_mat[nrow(input_mat),] %*% rotmat(x, ncol(input_mat))[, ncol(input_mat)])
+}
 
-# Parallel setup ####
-tt_optim_parallel = tt %>% 
-  select(theta_init, tmpl, data_list)
+for (ix_file in seq_along(vec_files)){
+  file_this = readRDS(paste0(main_path, vec_files[ix_file]))
+  
+  SCRIPT_PARAMS_this = file_this[[1]]$results_list$script_params
+  N_NOISE_PARAMS_SGT = DIM_OUT^2 + DIM_OUT*3
+  
+  IX_ARRAY_JOB_this = SCRIPT_PARAMS_this$IX_ARRAY_JOB
+  N_MODS_this = with(SCRIPT_PARAMS_this, N_MODS_PER_CORE * N_CORES)
+  
+  tibble_list[[ix_file]] =  
+    enframe(file_this) %>% 
+    rename(nr = name) %>% 
+    mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+    unnest_wider(value) %>% 
+    unnest_wider(results_list) %>% 
+    select(nr, params_deep_final, value_final, input_integerparams) %>% 
+    mutate(n_params = map_int(params_deep_final, length)) %>% 
+    mutate(n_params_sys = n_params - N_NOISE_PARAMS_SGT) %>% # SGT has (too) many noise parameters, so I want to check what happens when one uses only the number of system parameters as punishment
+    unnest_wider(input_integerparams) %>% 
+    mutate(punish_aic = n_params * 2/SCRIPT_PARAMS_this$N_OBS) %>% 
+    mutate(punish_bic = n_params * log(SCRIPT_PARAMS_this$N_OBS)/SCRIPT_PARAMS_this$N_OBS) %>% 
+    mutate(value_aic = value_final + punish_aic) %>% 
+    mutate(value_bic = value_final + punish_bic) %>% 
+    select(-value_final, -starts_with("punish"))
+}
 
-params_parallel = lapply(1:nrow(tt_optim_parallel),
-                         function(i) t(tt_optim_parallel)[,i])
+tt_full = reduce(tibble_list, bind_rows)
 
-cl = makeCluster(params$N_CORES, type = "FORK")
-mods_parallel_list <- clusterApply(cl, params_parallel, fun = hlp_parallel)
-stopCluster(cl)
+tt_full <- bind_cols(tt_full, tt %>% select(setdiff(names(tt), names(tt_full))))
+tt_full <- tt_full %>% 
+  group_by(prm_ix, mc_ix) %>% 
+  slice_min(order_by = value_bic) %>% 
+  ungroup %>%
+  mutate(irf = map2(params_deep_final, tmpl, ~irf_whf(.x, .y, n_lags = 12)))
 
-top_mod = 
-  enframe(mods_parallel_list) %>% 
-  unnest_wider(value) %>% 
-  unnest_wider(results_list) %>% 
-  mutate(n_params = map_int(params_deep_final, length)) %>%
-  unnest_wider(input_integerparams) %>%
-  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
-  mutate(value_aic = value_final + n_params * 2/params$N_OBS) %>% 
-  mutate(value_bic = value_final + n_params * log(params$N_OBS)/params$N_OBS) %>% 
-  arrange(value_aic) %>% 
-  slice(1)
+n_ahead <- 12
+irf_all <- array(0, c(2, 2, n_ahead+1, max(tt_full$mc_ix), max(tt_full$prm_ix)))
+# 
+for(para_ix in 1:4){
+  
+  for(mc_i in 1:101){
+    irf0 <- tt_full %>% 
+      filter(prm_ix==para_ix) %>% 
+      select(irf) %>%
+      slice(mc_i) %>% 
+      deframe %>% .[[1]] %>% 
+      unclass
+    perm_ix <- order(apply(abs(sapply(1:dim(irf0)[3], function(x) diag(irf0[,,x]))/diag(irf0[,,1])), 1, max))
+    sign_ix <- sapply(1:dim(irf0)[2], function(x) ifelse(abs(min(irf0[,x,]))>abs(max(irf0[,x,])), -1, 1))
+    irf0 <- permute_chgsign(irf0, perm = perm_ix, sign = sign_ix[perm_ix])
+    irf_all[,,,mc_i,para_ix] <- (pseries(irf0, n_ahead)%r%rotmat(atan(-irf0[1,2,1]/irf0[1,1,1]),2)) %>% unclass
+  }
+}
 
-irf0 <- irf_whf(theta = top_mod$params_deep_final[[1]],
-                tmpl = top_mod$tmpl[[1]],
-                n_lags = n_ahead) %>% unclass
-perm_ix <- order(apply(abs(sapply(1:dim(irf0)[3], function(x) diag(irf0[,,x]))/diag(irf0[,,1])), 1, max))
-sign_ix <- sapply(1:dim(irf0)[2], function(x) ifelse(abs(min(irf0[,x,]))>abs(max(irf0[,x,])), -1, 1))
-irf0 <- permute_chgsign(irf0, perm = perm_ix, sign = sign_ix[perm_ix])
-irf_svarma[,,,mc_ix,jj] <- (pseries(irf0, n_ahead)%r%rotmat(atan(-irf0[1,2,1]/irf0[1,1,1]))) %>% unclass
-
-mc_ix <- mc_ix + 1
-#if(mc_ix%%10==0){cat(paste("MC round", mc_ix), "\n"); Sys.time()-stt}
-print(Sys.time()-stt)
+apply(irf_all[,,,,1], c(1,2,3), median) %>% pseries(12) %>% plot

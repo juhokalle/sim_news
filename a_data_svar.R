@@ -1,10 +1,7 @@
 # Packages ####
-pkgs <- c("svars", "vars", "svarmawhf", "tidyverse")
+.libPaths(c(.libPaths(), "/proj/juhokois/R/"))
+pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
-# date_string <- Sys.time() %>% 
-#   str_remove_all(pattern = "-") %>%
-#   str_remove_all(pattern = ":") %>% 
-#   str_replace(pattern = " ", replacement = "_")
 
 # Helper functions ####
 simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...) {
@@ -83,7 +80,7 @@ sim_news <- function(beta, rho, nobs, nu){
 # Simulation params ####
 n_ahead = 12
 mc_n <- 101
-sim_prm <- expand.grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = c(3,12))
+sim_prm <- expand.grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = c(12,48))
 data_list <- vector("list", mc_n*nrow(sim_prm))
 irf_svar <- array(NA, c(2,2,n_ahead+1,mc_n,nrow(sim_prm)))
 
@@ -102,7 +99,7 @@ for(prm_ix in 1:nrow(sim_prm)){
     rest_mat <- diag(4)
     rest_mat[3,3] <- 0 
     svar_obj <- svars::id.ngml(var_obj, 
-                               stage3 = FALSE,
+                               stage3 = TRUE,
                                restriction_matrix = rest_mat) %>% try(silent = TRUE)
     
     if(!inherits(svar_obj, 'try-error')){
@@ -122,4 +119,5 @@ for(prm_ix in 1:nrow(sim_prm)){
 }
 
 data_list <- tibble(data_list, mc_ix = rep(1:mc_n, 4), prm_ix = rep(1:4, each = mc_n))
+saveRDS(irf_svar, file = "./local_data/irf_svar.rds")
 saveRDS(data_list, file = "./local_data/data_list.rds")

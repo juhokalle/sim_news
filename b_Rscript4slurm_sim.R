@@ -3,6 +3,17 @@
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
 params = list()
+# Helper functions ####
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "gaussian", ...){
+  tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
+}
+
+hlp_parallel = function(list_input){
+  return(create_results_list(theta_init = list_input[[1]], 
+                             tmpl       = list_input[[2]],
+                             params     = params, 
+                             DATASET    = list_input[[3]]))
+}
 
 # Parameters from Rmarkdown
 params$USE_PARALLEL = TRUE
@@ -41,7 +52,6 @@ params$MAXIT_NM_SGT = 3000 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "./local_data/"
 
-
 cat("\n--------------------------------------------------\n")
 cat(paste0("This is array task ", params$IX_ARRAY_JOB, "\n"))
 cat(paste0("The job ID is ", params$SLURM_JOB_ID, "\n"))
@@ -54,9 +64,6 @@ cat(paste0("Rows ", 1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS
            " from the tibble containing integer-valued parameters are chosen. \n\n"))
 cat("\n--------------------------------------------------\n")
 
-# Packages ####
-pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "fitdistrplus", "sgt", "tidyverse")
-void = lapply(pkgs, library, character.only = TRUE)
 
 # Data and derived PARAMETERS ####
 DATASET = readRDS(params$FILE_NAME_INPUT)
@@ -79,37 +86,22 @@ tt =
   mutate(kappa = n_unst %/% DIM_OUT,
          k = n_unst %% DIM_OUT) %>% 
   filter(n_unst==1)
-tt <- expand_grid(DATASET, tt)
 
-# Select rows ####
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "gaussian", ...){
-  tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
-}
-
-tt = tt %>%
-  slice((1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE):(params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE)) %>% 
+tt <- expand_grid(DATASET, tt) %>%
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) 
+  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x)))
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
+  slice((1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE):(params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE)) %>% 
   select(theta_init, tmpl, data_list)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])
 
-hlp_parallel = function(list_input){
-  return(create_results_list(theta_init = list_input[[1]], 
-                             tmpl       = list_input[[2]],
-                             params     = params, 
-                             DATASET    = list_input[[3]]))
-}
-
-
-
-if (params$USE_PARALLEL){
+if(params$USE_PARALLEL){
   
   # Parallel computations
   cl = makeCluster(params$N_CORES, type = "FORK")
@@ -131,7 +123,4 @@ if (!dir.exists(new_dir_path)){
 }
 
 saveRDS(mods_parallel_list, paste0(new_dir_path, "/arrayjob_", params$IX_ARRAY_JOB,".rds"), version = 3)
-
-
-
 
