@@ -1,22 +1,24 @@
 # preliminaries ####
 main_path <- "local_data/jobid_20220912/"
 vec_files <- list.files(main_path)
+tt <- readRDS("local_data/data_list.rds")
+n_ahead <- 12
 
 # modify file names such that they are ordered correctly 1,2,...
 for(ix_file in seq_along(vec_files)){
-  file_sub <- sub(".*_", "", sub("\\..*", "", vec_files[ix_file]))
-  if((nchar(file_sub)==1 && length(vec_files) < 100) || (nchar(file_sub)==2 && length(vec_files) >= 100)){
-    file_sub <- paste0("0", file_sub)
-  } else if(nchar(file_sub)==1 && length(vec_files) > 100){
-    file_sub <- paste0("00", file_sub)
+  file_nr <- sub(".*_", "", sub("\\..*", "", vec_files[ix_file]))
+  if((nchar(file_nr)==1 && length(vec_files) < 100) || (nchar(file_nr)==2 && length(vec_files) >= 100)){
+    file_nr <- paste0("0", file_nr)
+  } else if(nchar(file_nr)==1 && length(vec_files) > 100){
+    file_nr <- paste0("00", file_nr)
   }
   file.rename(paste0(main_path, vec_files[ix_file]),
-              paste0(main_path, "arrayjob_", file_sub, ".rds"))
+              paste0(main_path, "arrayjob_", file_nr, ".rds"))
 }
+vec_files <- list.files(main_path)
 
 tibble_list = vector("list", length(vec_files))
 
-vec_files <- list.files(main_path)
 SCRIPT_PARAMS = readRDS(paste0(main_path, vec_files[1]))[[1]]$results_list$script_params
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
 
@@ -43,11 +45,11 @@ permute_chgsign = function(irf_array,
 }
 rotmat <- function(x, n){
   
-  rot_mat <- matrix(c(cos(x), -sin(x), sin(x), cos(x)), 2,2)
   rot_ix <- combn(n,2)
   final_mat <- diag(n)
   
   for(jj in 1:ncol(rot_ix)){
+    rot_mat <- matrix(c(cos(x[jj]), -sin(x[jj]), sin(x[jj]), cos(x[jj])), 2, 2)
     temp_mat <- diag(n)
     temp_mat[rot_ix[,jj], rot_ix[,jj]] <- rot_mat
     final_mat <- final_mat %*% temp_mat
@@ -56,9 +58,11 @@ rotmat <- function(x, n){
   final_mat
 }
 
-
-ff <- function(x){
-  abs(input_mat[nrow(input_mat),] %*% rotmat(x, ncol(input_mat))[, ncol(input_mat)])
+ff <- function(x, zero_ix, input_mat){
+  
+  row_ix <- if(is.null(dim(zero_ix))) zero_ix[1] else zero_ix[,1]
+  col_ix <- if(is.null(dim(zero_ix))) zero_ix[2] else zero_ix[,2]
+  sum(sqrt((diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix]))^2))
 }
 
 for (ix_file in seq_along(vec_files)){
@@ -87,21 +91,19 @@ for (ix_file in seq_along(vec_files)){
     select(-value_final, -starts_with("punish"))
 }
 
-tt_full = reduce(tibble_list, bind_rows)
-
-tt_full <- bind_cols(tt_full, tt %>% select(setdiff(names(tt), names(tt_full))))
-tt_full <- tt_full %>% 
+tt_full = reduce(tibble_list, bind_rows) %>% 
+  bind_cols(tt %>% select(setdiff(names(tt), names(tt_full)))) %>% 
   group_by(prm_ix, mc_ix) %>% 
   slice_min(order_by = value_bic) %>% 
   ungroup %>%
-  mutate(irf = map2(params_deep_final, tmpl, ~irf_whf(.x, .y, n_lags = 12)))
+  mutate(irf = map2(params_deep_final, tmpl, ~irf_whf(.x, .y, n_lags = n_ahead)))
 
-n_ahead <- 12
-irf_all <- array(0, c(2, 2, n_ahead+1, max(tt_full$mc_ix), max(tt_full$prm_ix)))
-# 
-for(para_ix in 1:4){
+irf_svarma <- array(0, c(2, 2, n_ahead+1, max(tt_full$mc_ix), max(tt_full$prm_ix)))
+
+# sign and permute irfs and impose the zero restriction
+for(para_ix in 1:dim(irf_svarma)[5]){
   
-  for(mc_i in 1:101){
+  for(mc_i in 1:dim(irf_svarma)[4]){
     irf0 <- tt_full %>% 
       filter(prm_ix==para_ix) %>% 
       select(irf) %>%
@@ -111,8 +113,8 @@ for(para_ix in 1:4){
     perm_ix <- order(apply(abs(sapply(1:dim(irf0)[3], function(x) diag(irf0[,,x]))/diag(irf0[,,1])), 1, max))
     sign_ix <- sapply(1:dim(irf0)[2], function(x) ifelse(abs(min(irf0[,x,]))>abs(max(irf0[,x,])), -1, 1))
     irf0 <- permute_chgsign(irf0, perm = perm_ix, sign = sign_ix[perm_ix])
-    irf_all[,,,mc_i,para_ix] <- (pseries(irf0, n_ahead)%r%rotmat(atan(-irf0[1,2,1]/irf0[1,1,1]),2)) %>% unclass
+    irf_svarma[,,,mc_i,para_ix] <- (pseries(irf0, n_ahead)%r%rotmat(atan(-irf0[1,2,1]/irf0[1,1,1]),2)) %>% unclass
   }
 }
-
-apply(irf_all[,,,,1], c(1,2,3), median) %>% pseries(12) %>% plot
+saveRDS(tt_full, file = "./local_data/data_list.rds")
+saveRDS(irf_svarma, file = "./local_data/irf_svarma.rds")

@@ -1,3 +1,10 @@
+# purpose and the output of the script: ###
+# the script 1) simulates data from the model with news shocks
+# with different degrees of non-Gaussianity and non-invertibility;
+# 2) estimates the SVAR model where the structural shocks are
+# identified using non-Gaussianity; 3) saving the dataset and 
+# the SVAR impulse response function
+
 # Packages ####
 .libPaths(c(.libPaths(), "/proj/juhokois/R/"))
 pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
