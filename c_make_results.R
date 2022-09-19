@@ -1,3 +1,8 @@
+# Packages ####
+.libPaths(c(.libPaths(), "/proj/juhokois/R/"))
+pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
+void = lapply(pkgs, library, character.only = TRUE)
+
 # preliminaries ####
 main_path <- "local_data/jobid_20220912/"
 vec_files <- list.files(main_path)
@@ -62,8 +67,14 @@ ff <- function(x, zero_ix, input_mat){
   
   row_ix <- if(is.null(dim(zero_ix))) zero_ix[1] else zero_ix[,1]
   col_ix <- if(is.null(dim(zero_ix))) zero_ix[2] else zero_ix[,2]
-  sum(sqrt((diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix]))^2))
+  sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
 }
+
+# for imposing the zero restriction, take the resulting VARMA model,
+# generate the corresponding ll-function, conditional on the model
+# parameters optimize the likelihood function wrt the rotation to
+# obtain rotation which makes the desired element equal to zero
+# and maximizes the likelihood function.
 
 for (ix_file in seq_along(vec_files)){
   file_this = readRDS(paste0(main_path, vec_files[ix_file]))
@@ -93,27 +104,28 @@ for (ix_file in seq_along(vec_files)){
 
 tt_full = reduce(tibble_list, bind_rows) %>% 
   bind_cols(tt %>% select(setdiff(names(tt), names(tt_full)))) %>% 
-  group_by(prm_ix, mc_ix) %>% 
+  group_by(prm_ix, mc_ix, n_unst) %>% 
   slice_min(order_by = value_bic) %>% 
   ungroup %>%
   mutate(irf = map2(params_deep_final, tmpl, ~irf_whf(.x, .y, n_lags = n_ahead)))
 
-irf_svarma <- array(0, c(2, 2, n_ahead+1, max(tt_full$mc_ix), max(tt_full$prm_ix)))
+irf_svarma <- array(0, c(2, 2, n_ahead+1, max(tt_full$mc_ix), max(tt_full$prm_ix) + max(tt_full$n_unst)))
 
 # sign and permute irfs and impose the zero restriction
-for(para_ix in 1:dim(irf_svarma)[5]){
-  
-  for(mc_i in 1:dim(irf_svarma)[4]){
-    irf0 <- tt_full %>% 
-      filter(prm_ix==para_ix) %>% 
-      select(irf) %>%
-      slice(mc_i) %>% 
-      deframe %>% .[[1]] %>% 
-      unclass
-    perm_ix <- order(apply(abs(sapply(1:dim(irf0)[3], function(x) diag(irf0[,,x]))/diag(irf0[,,1])), 1, max))
-    sign_ix <- sapply(1:dim(irf0)[2], function(x) ifelse(abs(min(irf0[,x,]))>abs(max(irf0[,x,])), -1, 1))
-    irf0 <- permute_chgsign(irf0, perm = perm_ix, sign = sign_ix[perm_ix])
-    irf_svarma[,,,mc_i,para_ix] <- (pseries(irf0, n_ahead)%r%rotmat(atan(-irf0[1,2,1]/irf0[1,1,1]),2)) %>% unclass
+for(para_ix in 1:max(tt_full$prm_ix)){
+  for(root_ix in 1:max(tt_full$n_unst)){
+    for(mc_i in 1:dim(irf_svarma)[4]){
+      irf0 <- tt_full %>% 
+        filter(prm_ix==para_ix) %>% 
+        select(irf) %>%
+        slice(mc_i) %>% 
+        deframe %>% .[[1]] %>% 
+        unclass
+      perm_ix <- order(apply(abs(sapply(1:dim(irf0)[3], function(x) diag(irf0[,,x]))/diag(irf0[,,1])), 1, max))
+      sign_ix <- sapply(1:dim(irf0)[2], function(x) ifelse(abs(min(irf0[,x,]))>abs(max(irf0[,x,])), -1, 1))
+      irf0 <- permute_chgsign(irf0, perm = perm_ix, sign = sign_ix[perm_ix])
+      irf_svarma[,,,mc_i,(para_ix-1)+root_ix] <- (pseries(irf0, n_ahead)%r%rotmat(atan(-irf0[1,2,1]/irf0[1,1,1]),2)) %>% unclass
+    }
   }
 }
 saveRDS(tt_full, file = "./local_data/data_list.rds")

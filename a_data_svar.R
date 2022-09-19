@@ -87,9 +87,9 @@ sim_news <- function(beta, rho, nobs, nu){
 # Simulation params ####
 n_ahead = 12
 mc_n <- 101
-sim_prm <- expand.grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = c(12,48))
+sim_prm <- expand.grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = 12)
 data_list <- vector("list", mc_n*nrow(sim_prm))
-irf_svar <- array(NA, c(2,2,n_ahead+1,mc_n,nrow(sim_prm)))
+irf_svar <- array(NA, c(2, 2, n_ahead+1, mc_n, nrow(sim_prm)))
 
 # Simulation and data save ####
 for(prm_ix in 1:nrow(sim_prm)){
@@ -125,6 +125,8 @@ for(prm_ix in 1:nrow(sim_prm)){
   }
 }
 
-data_list <- tibble(data_list, mc_ix = rep(1:mc_n, 4), prm_ix = rep(1:4, each = mc_n))
+data_list <- tibble(data_list, 
+                    mc_ix = rep(1:mc_n, nrow(sim_prm)), 
+                    prm_ix = rep(1:nrow(sim_prm), each = mc_n))
 saveRDS(irf_svar, file = "./local_data/irf_svar.rds")
 saveRDS(data_list, file = "./local_data/data_list.rds")

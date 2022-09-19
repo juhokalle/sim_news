@@ -1,3 +1,8 @@
+# Packages ####
+.libPaths(c(.libPaths(), "/proj/juhokois/R/"))
+pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
+void = lapply(pkgs, library, character.only = TRUE)
+
 # Script to be called via SLURM
 
 # Arguments from Rscript call: Parameters from SLURM script ####
@@ -77,15 +82,14 @@ params$N_OBS = N_OBS
 tt = 
   # orders (p,q)
   expand_grid(p = 0:params$AR_ORDER_MAX,
-              q = 0:params$MA_ORDER_MAX) %>% 
-  filter(!(p == 0 & q == 0)) %>% 
+              q = 1:params$MA_ORDER_MAX) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
   unnest(n_unst) %>% 
   mutate(n_st = DIM_OUT * q - n_unst) %>% 
   mutate(kappa = n_unst %/% DIM_OUT,
          k = n_unst %% DIM_OUT) %>% 
-  filter(n_unst==1)
+  filter(n_unst%in%c(1,2))
 
 tt <- expand_grid(DATASET, tt) %>%
   # template
