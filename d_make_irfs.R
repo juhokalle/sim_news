@@ -1,1 +1,0 @@
-apply(irf_all[,,,,1], c(1,2,3), median) %>% pseries(12) %>% plot

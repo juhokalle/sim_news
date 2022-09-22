@@ -1,0 +1,835 @@
+---
+title: "Robust Standard Errors"
+author: "Bernd Funovits"
+output: 
+  html_document:
+    code_folding: show  
+    df_print: paged
+    toc: yes
+    toc_depth: '3'    
+    toc_float:
+      collapsed: no 
+    number_sections: true
+params:
+  DIRPATH_MOD: "../local_data/p_whf/best_mod_rob/"
+  FILEPATH_DATASET: "../local_data/g_gmr_bq/data_xts.rds"
+  ZERO_RESTR: FALSE 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE)
+pkgs = c("svarmawhf", "svars", "tidyverse", "numDeriv", "glue", "corrplot")
+void = lapply(pkgs, library, character.only = TRUE)
+
+#Pseudo Inverse
+ginv = MASS::ginv 
+
+dtable = function(x){
+  x %>% 
+    select(-where(is.list)) %>% 
+    mutate_if(is.numeric, round, digits = 7) %>% 
+    DT::datatable(extensions = c('Buttons', 'Scroller', 'ColReorder'), 
+                  options = list(dom = 'Bflirtp', buttons = I('colvis'), 
+                                 deferRender = TRUE, scrollY = 350, scrollX = TRUE, scroller = TRUE,
+                                 colReorder = TRUE),
+                  filter = list(position = 'top', clear = TRUE)) %>% 
+    suppressWarnings()
+}
+
+```
+
+# High Level Summary
+
+We obtain different estimates for the standard deviations of the parameter estimates.
+In particular, we compare estimates under the assumption of correct model specification with robust ones.
+
+Under correct specification, the information matrix matrix may be calculated as the 
+
+* outer product gradient (OPG) of the scores
+* the Hessian obtained as output for `stats::optim()`
+* the analytic version of the Hessian obtained from `numDeriv::hessian()`
+
+Allowing for misspecification, the robust standard errors are obtained from the covariance matrix $\Omega^{-1}\left(\hat{\theta_T}\right) I\left(\hat{\theta_T}\right) \Omega^{-1}\left(\hat{\theta_T}\right)$.
+Again, the Hessian may be calculated as output of `stats::optim()` or in an analytic way from `numDeriv::hessian()`.
+
+First, we investigate the OPG and the different versions of the Hessians quantitatively and by plotting the values, see section [OPG and Hessian] and in particular [Plot Parameters].
+Subsequently, we compare the diagonal elements of the OPG and the different versions of the Hessian in [Diagonal Elements].
+Next, we evaluate the implied standard deviations for the system and noise parameters quantitatively and with plots in [Compare Standard Deviations].
+Finally, we provide the results, i.e. each part of the parameter estimates together with their robust and non-robust standard errors, see [Results].
+
+Some distribution parameters are not estimated very precisely as one can see from [Noise Parameters].
+The sub-matrix pertaining to the distribution parameters is close to singular.
+
+# Load data
+
+## Data Set
+
+Load Blanchard and Quah (1989) dataset and its dimensions.
+
+```{r}
+DATASET = readRDS(params$FILEPATH_DATASET) %>% 
+  as.matrix()
+DIM_OUT = dim(DATASET)[2]
+N_OBS = dim(DATASET)[1]
+```
+
+
+## Optimal model
+
+Load the template and the deep parameters for the best model.
+
+```{r}
+PARAMS = read_rds(glue("{params$DIRPATH_MOD}bf_params_12_2.rds"))
+TMPL = read_rds(glue("{params$DIRPATH_MOD}bf_tmpl_12_2.rds"))
+```
+
+Fill the template
+
+```{r}
+params_opt_mod = fill_tmpl_whf_rev(theta = PARAMS,
+                                   tmpl = TMPL)
+```
+
+Print AR parameters in wide matrix format.
+
+```{r}
+params_opt_mod$polm_ar %>% matrix(nrow = 2)
+```
+
+Print MA backwards parameters in wide matrix format.
+
+```{r}
+params_opt_mod$polm_ma_bwd %>% matrix(nrow = 2)
+```
+
+Print MA forwards parameters in wide matrix format.
+
+```{r}
+params_opt_mod$polm_ma_fwd %>% matrix(nrow = 2)
+```
+
+Print static matrix B
+
+```{r}
+params_opt_mod$B %>% matrix(nrow = 2)
+```
+
+Print distribution parameters, $\lambda, p, q$ for each variable (in columns)
+
+```{r}
+params_opt_mod$distr %>% matrix(ncol = 2)
+```
+
+Number of deep parameters parameters 
+
+```{r}
+TMPL$ar$n_par
+TMPL$ma_bwd$n_par
+TMPL$ma_fwd$n_par
+TMPL$B$n_par
+TMPL$distr$n_par
+```
+
+## Indices of System and Noise Parameters
+
+```{r}
+ix_params_sys = 1:12
+ix_params_sys_ar = 1:4
+ix_params_sys_ma_bwd = 5:8
+ix_params_sys_ma_fwd = 9:12
+```
+
+```{r}
+ix_params_noise = 13:22
+ix_params_noise_b = 13:16
+ix_params_noise_sgt = 17:22
+```
+
+## Likelihood function
+
+Obtain likelihood function for given dataset and template.
+
+
+```{r}
+ll_fun_sgt = ll_whf_factory(data_wide = t(DATASET), 
+                            tmpl = TMPL, shock_distr = "sgt", 
+                            use_cpp = TRUE)
+```
+
+Recalculate the optimisation with argument `hessian = TRUE`.
+
+```{r}
+N_PARAMS = length(PARAMS)
+
+out = optim(par = PARAMS, 
+            fn = ll_fun_sgt, 
+            method = "L-BFGS-B", 
+            lower = c(rep(-Inf, N_PARAMS), rep(c(-1, 1.5, 2), DIM_OUT)),
+            upper = c(rep(Inf, N_PARAMS), rep(c(1, Inf, Inf), DIM_OUT)),
+            control = list(maxit = 100), hessian = TRUE)
+```
+
+Check output 
+
+```{r}
+out$par - PARAMS
+```
+
+
+# OPG and Hessian
+
+## Obtain Different Versions
+
+Calculate OPG
+
+```{r}
+ll_grad = ll_whf_factory_grad_helper(data_wide = t(DATASET),
+                                     tmpl = TMPL)
+```
+
+```{r}
+J = jacobian(func = ll_grad,
+             x = PARAMS)
+opg = J/sqrt(N_OBS)
+opg = crossprod(opg)
+
+if(params$ZERO_RESTR){
+  opg[ix_params_sys, ix_params_noise] = 0
+  opg[ix_params_noise, ix_params_sys] = 0
+}
+
+opg_inv = ginv(opg)
+```
+
+Calculate Analytic Hessian with **numDeriv** package.
+
+```{r}
+ha = hessian(func = ll_fun_sgt,
+             x = PARAMS)
+
+if(params$ZERO_RESTR){
+  ha[ix_params_sys, ix_params_noise] = 0
+  ha[ix_params_noise, ix_params_sys] = 0
+}
+
+ha_inv = ginv(ha)
+```
+
+Calculate Hessian via **optim**
+
+```{r}
+hopt = out$hessian
+
+if(params$ZERO_RESTR){
+  hopt[ix_params_sys, ix_params_noise] = 0
+  hopt[ix_params_noise, ix_params_sys] = 0
+}
+
+hopt_inv = ginv(hopt)
+```
+
+## Plot Parameters
+
+Hessian (inverse of information matrix under correct specification) and its normalised version.
+
+In the first column are the 
+
+* OPG
+* Analytic Hessian
+* Hessian obtain from optim
+
+and in the second column their normalised versions.
+
+```{r fig.height=11.2, fig.width=7}
+par(mfcol = c(3,2))
+
+opg %>% corrplot(is.corr = FALSE)
+ha %>% corrplot(is.corr = FALSE)
+hopt %>% corrplot(is.corr = FALSE)
+opg %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+ha %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+hopt %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+```
+
+### System Paramters
+
+```{r fig.height=11.2, fig.width=7}
+par(mfcol = c(3,2))
+
+opg[ix_params_sys, ix_params_sys] %>% corrplot(is.corr = FALSE)
+ha[ix_params_sys, ix_params_sys] %>% corrplot(is.corr = FALSE)
+hopt[ix_params_sys, ix_params_sys] %>% corrplot(is.corr = FALSE)
+opg[ix_params_sys, ix_params_sys] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+ha[ix_params_sys, ix_params_sys] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+hopt[ix_params_sys, ix_params_sys] %>%cov2cor() %>% corrplot() %>% suppressWarnings()
+```
+
+### Noise Parameters
+
+#### Noise Parameters with Strict Zeros
+
+```{r}
+opg[ix_params_sys, ix_params_noise] = 0
+opg[ix_params_noise, ix_params_sys] = 0
+
+opg[ix_params_noise_b, ix_params_noise_sgt] = 0
+opg[ix_params_noise_sgt, ix_params_noise_b] = 0
+
+opg[ix_params_noise_sgt[1:3], ix_params_noise_sgt[4:6]] = 0
+opg[ix_params_noise_sgt[4:6], ix_params_noise_sgt[1:3]] = 0
+
+opg %>% zapsmall()
+opg %>% ginv() %>% zapsmall()
+```
+
+```{r}
+hopt[ix_params_sys, ix_params_noise] = 0
+hopt[ix_params_noise, ix_params_sys] = 0
+
+hopt[ix_params_noise_b, ix_params_noise_sgt] = 0
+hopt[ix_params_noise_sgt, ix_params_noise_b] = 0
+
+hopt[ix_params_noise_sgt[1:3], ix_params_noise_sgt[4:6]] = 0
+hopt[ix_params_noise_sgt[4:6], ix_params_noise_sgt[1:3]] = 0
+
+hopt %>% zapsmall()
+hopt %>% ginv() %>% zapsmall()
+```
+
+```{r}
+ha[ix_params_sys, ix_params_noise] = 0
+ha[ix_params_noise, ix_params_sys] = 0
+
+ha[ix_params_noise_b, ix_params_noise_sgt] = 0
+ha[ix_params_noise_sgt, ix_params_noise_b] = 0
+
+ha[ix_params_noise_sgt[1:3], ix_params_noise_sgt[4:6]] = 0
+ha[ix_params_noise_sgt[4:6], ix_params_noise_sgt[1:3]] = 0
+
+ha %>% zapsmall()
+ha %>% ginv() %>% zapsmall()
+```
+
+
+```{r}
+c(opg[ix_params_noise, ix_params_noise], 
+  ha[ix_params_noise, ix_params_noise], 
+  hopt[ix_params_noise, ix_params_noise]) %>% 
+  array(dim = c(10, 10, 3)) %>% 
+  zapsmall()
+```
+
+
+```{r}
+hopt[ix_params_noise, ix_params_noise] %>% ginv() %>% zapsmall()
+```
+```{r}
+hopt[ix_params_noise_sgt, ix_params_noise_sgt] %>% ginv() %>% zapsmall()
+```
+
+```{r}
+eigen(hopt[ix_params_noise, ix_params_noise])$values
+```
+
+
+```{r}
+eigen(hopt[ix_params_noise, ix_params_noise])$values
+```
+```{r}
+eigen(hopt[ix_params_noise_b, ix_params_noise_b])$values
+```
+```{r}
+eigen(hopt[ix_params_noise_sgt, ix_params_noise_sgt])$values
+```
+```{r}
+eigen(hopt[ix_params_noise_sgt[1:3], ix_params_noise_sgt[1:3]])$values
+```
+
+
+```{r}
+hopt[ix_params_noise_sgt[1:3], ix_params_noise_sgt[1:3]] %>% zapsmall()
+hopt[ix_params_noise_sgt[1:3], ix_params_noise_sgt[1:3]] %>% ginv() %>% zapsmall()
+```
+
+```{r}
+eigen(hopt[ix_params_noise_sgt[4:6], ix_params_noise_sgt[4:6]])$values
+```
+
+```{r}
+hopt[ix_params_noise_sgt[4:6], ix_params_noise_sgt[4:6]] %>% zapsmall()
+hopt[ix_params_noise_sgt[4:6], ix_params_noise_sgt[4:6]] %>% ginv() %>% zapsmall()
+```
+
+```{r fig.height=11.2, fig.width=7}
+par(mfcol = c(3,2))
+
+opg[ix_params_noise, ix_params_noise] %>% corrplot(is.corr = FALSE)
+ha[ix_params_noise, ix_params_noise] %>% corrplot(is.corr = FALSE)
+hopt[ix_params_noise, ix_params_noise] %>% corrplot(is.corr = FALSE)
+opg[ix_params_noise, ix_params_noise] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+ha[ix_params_noise, ix_params_noise] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+hopt[ix_params_noise, ix_params_noise] %>%cov2cor() %>% corrplot() %>% suppressWarnings()
+```
+
+
+
+B matrix
+
+```{r fig.height=11.2, fig.width=7}
+par(mfcol = c(3,2))
+
+opg[ix_params_noise_b, ix_params_noise_b] %>% corrplot(is.corr = FALSE)
+ha[ix_params_noise_b, ix_params_noise_b] %>% corrplot(is.corr = FALSE)
+hopt[ix_params_noise_b, ix_params_noise_b] %>% corrplot(is.corr = FALSE)
+opg[ix_params_noise_b, ix_params_noise_b] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+ha[ix_params_noise_b, ix_params_noise_b] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+hopt[ix_params_noise_b, ix_params_noise_b] %>%cov2cor() %>% corrplot() %>% suppressWarnings()
+```
+
+Distribution parameters
+
+```{r fig.height=11.2, fig.width=7}
+par(mfcol = c(3,2))
+
+opg[ix_params_noise_sgt, ix_params_noise_sgt] %>% corrplot(is.corr = FALSE)
+ha[ix_params_noise_sgt, ix_params_noise_sgt] %>% corrplot(is.corr = FALSE)
+hopt[ix_params_noise_sgt, ix_params_noise_sgt] %>% corrplot(is.corr = FALSE)
+opg[ix_params_noise_sgt, ix_params_noise_sgt] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+ha[ix_params_noise_sgt, ix_params_noise_sgt] %>% cov2cor() %>% corrplot() %>% suppressWarnings()
+hopt[ix_params_noise_sgt, ix_params_noise_sgt] %>%cov2cor() %>% corrplot() %>% suppressWarnings()
+```
+
+
+## Diagonal elemets
+
+We compare the diagonal elements of
+
+* the OPG matrix
+* Hessian obtained from optim
+* analytic Hessian 
+
+### Quantitative 
+
+The columns starting with **diff_** contain the absolute difference between the different objects 
+
+```{r}
+(
+  comp_diag = tibble(name = c(rep("AR", 4),
+                              rep("MA_bwd", 4),
+                              rep("MA_fwd", 4),
+                              rep("B", 4),
+                              rep("distr", 6)),
+                     type = c(rep("system", 12), 
+                              rep("noise", 10)),
+                     a_opg_diag = diag(opg),
+                     b_ha_diag = diag(ha),
+                     c_hopt_diag = diag(hopt))
+)
+```
+```{r}
+comp_diag %>% 
+  dtable()
+```
+
+We need the following helper function which calculates the sum of the absolute differences between the elements pertaining to (OPG, Hessian optim, Hessian analytic)
+
+```{r}
+obtain_diff_abs_mat = function(df){
+  
+  mat  = df %>% 
+    as.matrix()
+  
+  names_df = colnames(df)
+  
+  res = matrix(nrow = ncol(df), ncol = ncol(df))
+  
+  for (ix_row in 1:ncol(df)){
+    for (ix_col in 1:ncol(df)) {
+      res[ix_row, ix_col] = (mat[, ix_row] - mat[, ix_col]) %>% abs() %>% sum(na.rm = TRUE)
+    }
+  }
+  
+  rownames(res) = names_df
+  colnames(res) = names_df
+  
+  return(res)
+}
+```
+
+
+Investigate the differences between the diagonal elements for each group (AR, MA backwards, MA forwards, B, distribution).
+
+```{r}
+comp_diag %>% select(contains("diag")) %>% obtain_diff_abs_mat()
+```
+
+### Plots
+
+Plot AR parameters
+
+```{r}
+comp_diag %>% 
+  filter(name == "AR") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Diagonal Elements for System Parameters: AR")
+```
+
+Plot MA backwards parameters
+
+```{r}
+comp_diag %>% 
+  filter(name == "MA_bwd") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Diagonal Elements for System Parameters: MA backwards")
+```
+
+Plot MA forwards parameters
+
+```{r}
+comp_diag %>% 
+  filter(name == "MA_fwd") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Diagonal Elements for System Parameters: MA forwards")
+```
+
+Plot noise parameters
+
+```{r}
+comp_diag %>% 
+  filter(name == "B") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Diagonal Elements for Noise Parameters: B")
+```
+
+```{r}
+comp_diag %>% 
+  filter(name == "distr") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Diagonal Elements for Noise Parameters: Distribution")
+```
+
+```{r}
+hopt %>% diag() %>% sqrt()
+```
+
+
+# Compare Standard Deviations
+
+## Quantitative
+
+Difference between all possible options for calculating the standard deviations of the parameters.
+
+```{r}
+comp_sd = tibble(name = c(rep("AR", 4),
+                          rep("MA_bwd", 4),
+                          rep("MA_fwd", 4),
+                          rep("B", 4),
+                          rep("distr", 6)),
+                 type = c(rep("system", 12), 
+                          rep("noise", 10))) %>% 
+  unite("type_name", type, name, remove = FALSE) %>% 
+  mutate(aa_opg_inv  = diag(ginv(opg)) %>% sqrt(),
+         ab_hopt_inv = diag(ginv(hopt)) %>% sqrt(),
+         ac_ha_inv   = diag(ginv(ha)) %>% sqrt(),
+         ba_rob_hopt = diag(ginv(hopt) %*% opg %*% ginv(hopt)) %>% sqrt(),
+         bb_rob_ha   = diag(ginv(ha) %*% opg %*% ginv(ha)) %>% sqrt())
+```
+
+
+```{r}
+comp_sd %>% 
+  mutate(across(where(is.numeric), ~ round(.x, digits = 3))) %>% 
+  dtable()
+```
+
+
+```{r}
+comp_sd %>% 
+  select(starts_with("a"), starts_with("b")) %>% 
+  obtain_diff_abs_mat()
+
+```
+
+```{r}
+comp_sd %>% 
+  filter(type == "system") %>% 
+  select(starts_with("a"), starts_with("b")) %>% 
+  obtain_diff_abs_mat()
+
+```
+
+```{r}
+comp_sd %>% 
+  filter(type == "noise") %>% 
+  select(starts_with("a"), starts_with("b")) %>% 
+  obtain_diff_abs_mat()
+
+```
+
+```{r}
+comp_sd %>% 
+  filter(name == "B") %>% 
+  select(starts_with("a"), starts_with("b")) %>% 
+  obtain_diff_abs_mat()
+
+```
+
+```{r}
+comp_sd %>% 
+  filter(name == "distr") %>% 
+  select(starts_with("a"), starts_with("b")) %>% 
+  obtain_diff_abs_mat()
+
+```
+
+## Plots
+
+```{r}
+comp_sd %>% 
+  filter(name == "AR") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type, -type_name) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Standard Errors of AR Parameters")
+```
+
+```{r}
+comp_sd %>% 
+  filter(name == "MA_bwd") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type, -type_name) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Standard Errors of MA backwards Parameters")
+```
+
+```{r}
+comp_sd %>% 
+  filter(name == "MA_fwd") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type, -type_name) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Standard Errors of MA forwards Parameters")
+```
+
+```{r}
+comp_sd %>% 
+  filter(name == "B") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type, -type_name) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Standard Errors of B Parameters")
+```
+```{r}
+PARAMS[ix_params_noise_sgt]
+```
+
+
+```{r}
+comp_sd %>% 
+  filter(name == "distr") %>% 
+  rowid_to_column() %>% 
+  select(-contains("diff")) %>% 
+  select(-name, -type, -type_name) %>% 
+  pivot_longer(-rowid) %>% 
+  ggplot(aes(x = rowid, y = value, fill = name)) + 
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  ggtitle("Standard Errors of Distribution Parameters")
+```
+
+
+# Results
+
+We choose the OPG for standard deviations in the correctly specified setting and the robust version calculated with analytic Hessian in the misspecified setting
+
+```{r}
+opt_mod_params = fill_tmpl_whf_rev(theta = PARAMS,
+                                   tmpl = TMPL)
+opt_mod_sd_correctlyspecified = fill_tmpl_whf_rev(theta = comp_sd %>% pull(aa_opg_inv),
+                                                  tmpl = TMPL)
+opt_mod_sd_misspecified = fill_tmpl_whf_rev(theta = comp_sd %>% pull(ba_rob_hopt),
+                                            tmpl = TMPL)
+```
+
+Print AR parameters with non-robust and robust standard errors in wide matrix format.
+
+```{r}
+opt_mod_params$polm_ar %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified$polm_ar %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified$polm_ar %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print MA backwards parameters with non-robust and robust standard errors in wide matrix format.
+
+```{r}
+opt_mod_params$polm_ma_bwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified$polm_ma_bwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified$polm_ma_bwd %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print MA forwards parameters with non-robust and robust standard errors in wide matrix format.
+
+```{r}
+opt_mod_params$polm_ma_fwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified$polm_ma_fwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified$polm_ma_fwd %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print static matrix B with non-robust and robust standard errors.
+
+```{r}
+opt_mod_params$B %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified$B %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified$B %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print distribution parameters with non-robust and robust standard errors , $\lambda, p, q$, for each variable (in columns)
+
+```{r}
+opt_mod_params$distr %>% matrix(ncol = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified$distr %>% matrix(ncol = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified$distr %>% matrix(ncol = 2) %>% round(digits = 3)
+```
+
+## Alternative Option
+
+Under correct specification may also choose, e.g., the analytic version of the Hessian to obtain the information matrix and calculate a robust version by using again the analytic version of the Hessian as well as the OPG
+
+```{r}
+opt_mod_params = fill_tmpl_whf_rev(theta = PARAMS,
+                                   tmpl = TMPL)
+opt_mod_sd_correctlyspecified_alt = fill_tmpl_whf_rev(theta = comp_sd %>% pull(ac_ha_inv),
+                                                  tmpl = TMPL)
+opt_mod_sd_misspecified_alt = fill_tmpl_whf_rev(theta = comp_sd %>% pull(bb_rob_ha),
+                                            tmpl = TMPL)
+```
+
+Print AR parameters with non-robust and robust standard errors in wide matrix format.
+
+```{r}
+opt_mod_params$polm_ar %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified_alt$polm_ar %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified_alt$polm_ar %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print MA backwards parameters with non-robust and robust standard errors in wide matrix format.
+
+```{r}
+opt_mod_params$polm_ma_bwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified_alt$polm_ma_bwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified_alt$polm_ma_bwd %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print MA forwards parameters with non-robust and robust standard errors in wide matrix format.
+
+```{r}
+opt_mod_params$polm_ma_fwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified_alt$polm_ma_fwd %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified_alt$polm_ma_fwd %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print static matrix B with non-robust and robust standard errors.
+
+```{r}
+opt_mod_params$B %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified_alt$B %>% matrix(nrow = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified_alt$B %>% matrix(nrow = 2) %>% round(digits = 3)
+```
+
+Print distribution parameters with non-robust and robust standard errors , $\lambda, p, q$, for each variable (in columns)
+
+```{r}
+opt_mod_params$distr %>% matrix(ncol = 2) %>% round(digits = 3)
+opt_mod_sd_correctlyspecified_alt$distr %>% matrix(ncol = 2) %>% round(digits = 3)
+opt_mod_sd_misspecified_alt$distr %>% matrix(ncol = 2) %>% round(digits = 3)
+```
+# Skewness and Kurtosis
+
+```{r}
+sgt_skewness = function(l, p, q){
+  v = q^(-1/p) *
+    (
+      (3*l^2+1) *
+        (beta(3/p,q-2/p)/beta(1/p,q)) -
+        4*l^2 *
+        (beta(2/p,q-1/p)/beta(1/p,q))^2
+    )^(-1/2)
+  
+  skewness = 2 * q^(3/p) * l * v^3 / beta(1/p, q)^3 *
+    (8*l^2*beta(2/p,q-1/p)^3 - 
+       3*(1+3*l^2) * beta(1/p,q) * beta(2/p, q-1/p) * beta(3/p,q-2/p) + 
+       2 * (1+l^2) * beta(1/p,q)^2 * beta(4/p, q-3/p)
+       )
+  
+  return(skewness)
+}
+
+sgt_kurtosis = function(l, p, q){
+  v = q^(-1/p) *
+    (
+      (3*l^2+1) *
+        (beta(3/p,q-2/p)/beta(1/p,q)) -
+        4*l^2 *
+        (beta(2/p,q-1/p)/beta(1/p,q))^2
+    )^(-1/2)
+  
+  kurtosis = q^(4/p) * v^4 / beta(1/p, q)^4 *
+    (48*l^4*beta(2/p,q-1/p)^4 +
+       24 * l^2 * (1+3*l^2) * beta(1/p,q) * beta(2/p, q-1/p)^2 * beta(3/p,q-2/p) -
+       32 * l^2 * (1+l^2) * beta(1/p,q)^2 * beta(2/p, q-1/p) * beta(4/p,q-3/p) + 
+       (1+10*l^2+5*l^4) * beta(1/p,q)^3 * beta(5/p, q-4/p)
+    )
+  
+  return(kurtosis)
+}
+```
+
+
+```{r}
+sgt_skewness(-0.52,1.49,85616)
+sgt_kurtosis(-0.52,1.49,85616)
+```
+
+
+```{r}
+sgt_skewness(0.15,1.92,7.89)
+sgt_kurtosis(0.15,1.92,7.89)
+```
+

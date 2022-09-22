@@ -1,0 +1,254 @@
+---
+title: "Data Preparation"
+author: "Bernd Funovits"
+date: "17 July 2021"
+output:
+  html_document:
+    code_folding: show
+    df_print: paged
+    toc: yes
+    toc_depth: '3'
+    toc_float:
+      collapsed: no
+    number_sections: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+    number_sections: yes
+params:
+  MAKE_PLOTS: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE)
+pkgs <- c("tidyverse", "lubridate", "xts", "svarmawhf")
+void <- lapply(pkgs, library, character.only = TRUE)
+```
+
+# Data Source 
+
+For comparison and replication purposes, we use the same data source as Gouriéroux et al. (2019) (see, https://academic.oup.com/restud/advance-article/doi/10.1093/restud/rdz028/5490841#supplementary-data).
+The raw data is obtained from https://econpapers.repec.org/software/bocbocode/rtz00017.htm ("RATS program to replicate Blanchard and Quah AER 1989", including an excel file with quarterly data which is described below).
+For convenience, we saved the raw data as csv file and import it below.
+
+```{r}
+bq_data = read_delim("../local_data/g_gmr_bq/bqdata.csv", 
+                     delim = ";",
+                     escape_double = FALSE, 
+                     col_types = cols(DATE = col_date(format = "%Y-%m-%d")), 
+                     trim_ws = TRUE)
+```
+
+The column names are 
+
+```{r}
+bq_data %>% names()
+```
+```{r}
+bq_data %>% head()
+```
+
+```{r}
+bq_data %>% tail()
+```
+
+
+Plot the raw data:
+
+```{r}
+if(params$MAKE_PLOTS){
+
+  bq_data_gg = bq_data %>% 
+    pivot_longer(-DATE, names_to = "Variable", values_to = "Value")
+
+  bq_data_gg %>%
+    ggplot(aes(DATE, Value, color = Variable)) + 
+    geom_line() + 
+    facet_grid(Variable ~ ., scales = "free_y") + 
+    scale_x_date(date_labels = "%b %Y", date_breaks = "2 years") + 
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 90),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank()) +
+    ggtitle("Raw Data")
+}
+```
+
+# Data Transformations
+
+We use the same transformations as Gouriéroux et al. (2019), which are in line with what is described in Blanchard and Quah (1989, page 661). 
+First, we transform the raw data to obtain real GDP and its (quarterly) change.
+
+```{r}
+bq_data = bq_data %>% 
+  rename(Unemployment = LHMUR) %>% 
+  mutate(realGDP = GNP/GD87) %>% 
+  select(-GNP, -GD87) %>% 
+  mutate(lag_realGDP = dplyr::lag(realGDP)) %>% 
+  mutate(rGDPgrowth = (realGDP - lag_realGDP)/lag_realGDP) %>% 
+  select(-lag_realGDP) 
+```
+
+```{r}
+bq_data %>% head()
+```
+
+
+```{r}
+if(params$MAKE_PLOTS){
+
+  bq_data_gg = bq_data %>% 
+    drop_na() %>% 
+    pivot_longer(-DATE, names_to = "Variable", values_to = "Value")
+  
+  bq_data_gg %>%
+    ggplot(aes(DATE, Value, color = Variable)) + 
+    geom_line() + 
+    facet_grid(Variable ~ ., scales = "free_y") + 
+    scale_x_date(date_labels = "%b %Y", date_breaks = "2 years") + 
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 90),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank()) +
+    ggtitle("Real GDP (Growth) and Unemployment")
+}
+```
+
+Second, we divide the data into two regimes because of different average growth rates of real GDP (equivalently to Gouriéroux et al. (2019) and as described in Blanchard and Quah (1989)).
+The first period is from 1948Q1 to 1973Q4, the second one from 1974Q1 to 1987Q4.
+
+```{r}
+bq_data = bq_data %>% 
+  mutate(regime = c(rep(1, 104), rep(2, nrow(bq_data)-104))) %>% 
+  group_by(regime) %>% 
+  select(-realGDP) %>% 
+  mutate(realGDPgrowth = 100*rGDPgrowth) %>% 
+  mutate(realGDPgrowth_mean = mean(realGDPgrowth, na.rm = TRUE)) %>% 
+  ungroup() 
+```
+
+Last, we detrend the unemployment rate.
+
+```{r}
+bq_data = bq_data %>% 
+  mutate(linear_time_trend = 1:nrow(bq_data))
+
+lm_unemp = lm(Unemployment ~ linear_time_trend, data = bq_data)
+```
+
+```{r}
+bq_data = bq_data %>% 
+  mutate(realGDPgrowth_demeaned = realGDPgrowth - realGDPgrowth_mean) %>% 
+  mutate(Unemployment_trend = lm_unemp$fitted.values) %>% 
+  mutate(Unemployment_detrended = Unemployment - lm_unemp$fitted.values)
+```
+
+# Plot Transformed Data
+
+```{r}
+if(params$MAKE_PLOTS){
+  bq_data %>% 
+    select(DATE, realGDPgrowth, realGDPgrowth_mean, Unemployment, Unemployment_trend) %>% 
+    drop_na() %>%     
+    pivot_longer(-DATE, names_to = "Variable", values_to = "Value") %>% 
+    ggplot(aes(DATE, Value, color = Variable)) + geom_line() + 
+    scale_x_date(date_labels = "%b %Y", date_breaks = "2 years") + 
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 90),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank()) +
+    ggtitle("Real GDP Growth (incl. its Mean during Different Periods) and\n
+            Unemployment Rate (incl. Linear Trend)")
+}
+```
+
+```{r}
+if(params$MAKE_PLOTS){
+  bq_data %>% 
+    select(DATE, realGDPgrowth_demeaned, Unemployment_detrended) %>% 
+    drop_na() %>% 
+    pivot_longer(-DATE, names_to = "Variable", values_to = "Value") %>% 
+    ggplot(aes(DATE, Value, color = Variable)) + geom_line() + 
+    scale_x_date(date_labels = "%b %Y", date_breaks = "2 years") + 
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 90),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank()) +
+    ggtitle("Demeaned Real GDP Growth and \n
+            Detrended Unemploment Rate")
+}
+```
+
+# Save Data as rds-Objects
+
+Finally, we save the data as matrix object and xts object.
+
+```{r}
+bq_data = bq_data %>% 
+  select(DATE, realGDPgrowth_demeaned, Unemployment_detrended) %>% 
+  drop_na()
+
+data_mat = bq_data %>%
+  select(-DATE) %>% 
+  as.matrix()
+
+data_xts = xts(data_mat, order.by = bq_data$DATE)
+
+if(!file.exists("../local_data/g_gmr_bq/data_mat.rds")){
+  saveRDS(data_mat, "../local_data/g_gmr_bq/data_mat.rds")
+}
+
+if(!file.exists("../local_data/g_gmr_bq/data_xts.rds")){
+  saveRDS(data_xts, "../local_data/g_gmr_bq/data_xts.rds")
+}
+```
+
+# Comparison with McCracken and Ng data
+
+```{r}
+unemp_xts = quantmod::getSymbols.FRED("LNS14000025", auto.assign = FALSE)
+unemp_xts["1948/1987",] 
+
+  
+```
+
+```{r}
+unemp_t = unemp_xts %>% as_tibble() %>% 
+  add_column(date = index(unemp_xts))
+
+unemp_t = unemp_t %>% 
+  filter(year(date) >= 1948,year(date) <= 1987) %>% 
+  rename(unemp = LNS14000025)
+```
+
+```{r}
+rGDP = quantmod::getSymbols.FRED("GDPC1", auto.assign = FALSE)
+rGDP_t = rGDP %>% as_tibble() %>% 
+  add_column(date = index(rGDP))
+
+rGDP_t = rGDP_t %>% 
+  filter(year(date) >= 1948, year(date) <= 1987) %>% 
+  left_join(unemp_t)
+```
+
+```{r}
+fred_data = rGDP_t %>% 
+  mutate(r_gdp_growth = (GDPC1 - dplyr::lag(GDPC1))/dplyr::lag(GDPC1)) %>% 
+  select(date, r_gdp_growth, unemp)
+```
+
+```{r}
+fred_data %>% 
+  pivot_longer(-date) %>% 
+  ggplot(aes(x=date, y= value, colour = name)) + 
+  geom_line() +
+  facet_grid(name ~ ., scales = "free_y") + 
+    scale_x_date(date_labels = "%b %Y", date_breaks = "2 years") + 
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 90),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank()) +
+    ggtitle("Raw Data")
+```
+

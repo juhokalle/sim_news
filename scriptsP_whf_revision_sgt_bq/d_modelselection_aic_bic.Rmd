@@ -1,0 +1,279 @@
+---
+title: "Model Selection: AIC and BIC"
+author: "Bernd Funovits"
+output: 
+  html_document:
+    code_folding: show 
+    df_print: paged
+    toc: yes
+    toc_depth: '3'    
+    toc_float:
+      collapsed: no
+params:
+  JOBID: 2021020701
+  PATH: "../local_data/p_whf/ukko_bq_jobid_"
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pkgs = c("tidyverse")
+void = lapply(pkgs, library, character.only = TRUE)
+```
+
+# Conclusion
+
+We exclude models whose AIC and/or BIC value is above a certain threshold.
+Due to the large number of models, many AIC/BIC values are similar.
+Therefore, the analysis in this file should be seen as a preliminary step for model selection which is based on both the AIC/BIC values and the independence properties of the residuals (analysed in the next Rmd file).
+
+# Data Wrangling
+
+The output is in various different files and needs to be joined in one tibble.
+
+```{r}
+# All files that were generated on ukko
+vec_files = list.files(paste0(params$PATH, params$JOBID))
+vec_files = vec_files[grepl("arrayjob", vec_files)]
+SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
+DIM_OUT = SCRIPT_PARAMS$DIM_OUT
+
+if (file.exists(paste0(params$PATH, params$JOBID, "/",
+                       "d_modelselection_aic_bic.rds"))){
+  tt_full = readRDS(paste0(params$PATH, params$JOBID, "/",
+                                  "d_modelselection_aic_bic.rds")) 
+} else {
+  tibble_list = vector("list", length(vec_files))
+  
+  for (ix_file in seq_along(vec_files)){
+    file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
+                        vec_files[ix_file]))
+    
+    SCRIPT_PARAMS_this = file_this[[1]]$results_list$script_params
+    N_NOISE_PARAMS_SGT = DIM_OUT^2 + DIM_OUT*3
+    
+    IX_ARRAY_JOB_this = SCRIPT_PARAMS_this$IX_ARRAY_JOB
+    N_MODS_this = with(SCRIPT_PARAMS_this, N_MODS_PER_CORE * N_CORES)
+    
+    tibble_list[[ix_file]] =  
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>% 
+      unnest_wider(results_list) %>% 
+      select(nr, params_deep_final, value_final, input_integerparams) %>% 
+      mutate(n_params = map_int(params_deep_final, length)) %>% 
+      mutate(n_params_sys = n_params - N_NOISE_PARAMS_SGT) %>% # SGT has (too) many noise parameters, so I want to check what happens when one uses only the number of system parameters as punishment
+      unnest_wider(input_integerparams) %>% 
+      mutate(punish_aic = n_params * 2/SCRIPT_PARAMS_this$N_OBS) %>% 
+      mutate(punish_bic = n_params * log(SCRIPT_PARAMS_this$N_OBS)/SCRIPT_PARAMS_this$N_OBS) %>% 
+      mutate(value_aic = value_final + punish_aic) %>% 
+      mutate(value_bic = value_final + punish_bic) %>% 
+      select(-value_final, -starts_with("punish"))
+  }
+  
+  tt_full = reduce(tibble_list, bind_rows)
+  tt_full = tt_full %>% 
+    mutate(p_plus_q = p + q) %>% 
+    mutate(n_unstable = kappa * DIM_OUT + k) %>% 
+    select(nr, p_plus_q, p ,q, n_unstable, contains("value"), n_params_sys)
+  
+  saveRDS(tt_full, 
+          file = paste0(params$PATH, params$JOBID, "/",
+                        "d_modelselection_aic_bic.rds"))
+  
+}
+```
+
+# Analyse AIC
+
+```{r}
+DIM_OUT = SCRIPT_PARAMS$DIM_OUT
+tt_full %>% 
+  arrange(value_aic) %>% 
+  mutate_if(is.numeric, round, digits = 4) %>% 
+  DT::datatable(extensions = c('Buttons', 'Scroller'), 
+                options = list(dom = 'Bflirtp', buttons = I('colvis'), 
+                               deferRender = TRUE, scrollY = 350, scroller = TRUE),
+                filter = list(position = 'top', clear = TRUE))
+```
+
+Group by AR and MA order to check if there is a trend regarding the optimal number of unstable MA roots
+
+```{r}
+tt_full %>%
+  select(-contains("bic")) %>% 
+  arrange(desc(p_plus_q), desc(p), desc(q), value_aic) %>% 
+  group_by(p_plus_q) %>% 
+  slice(1, .preserve = TRUE) %>% 
+  arrange(value_aic)
+```
+
+# Plot AIC
+
+## Dependence on sum of AR and MA order
+
+```{r}
+tt_full %>% 
+  ggplot(aes(x = p_plus_q, y = value_aic, color = as.factor(q))) +
+  geom_point() -> pp
+
+plotly::ggplotly(pp)
+```
+
+## Dependence on number of unstable roots, colors for different number of system parameters
+
+```{r}
+tt_full %>% 
+  ggplot(aes(x = n_unstable, y = value_aic, color = as.factor(p_plus_q))) +
+  geom_point() -> pp
+
+plotly::ggplotly(pp)
+```
+
+## Dependence on sum of AR and MA order
+
+```{r}
+tt_full %>% 
+  filter(q <= 4, p <= 4) %>% 
+  ggplot(aes(x = p_plus_q, y = value_aic, shape = as.factor(p), color = as.factor(q))) +
+  geom_point() + 
+  scale_shape_discrete(name = "AR and MA \norder (p,q)") +
+  scale_color_discrete(name = "") -> pp
+
+plotly::ggplotly(pp)
+```
+
+```{r}
+tt_full %>% 
+  filter(q <= 4, p <= 4) %>% 
+  ggplot(aes(x = p_plus_q, y = value_aic, color = as.factor(q), shape = as.factor(p))) +
+  geom_point() + 
+  scale_color_discrete(name = "MA and MA \norder (q,p)") +
+  scale_shape_discrete(name = "") -> pp
+
+plotly::ggplotly(pp)
+```
+
+## Dependence on number of unstable roots, colors for different number of system parameters
+
+```{r}
+# myfunction <- function(var, string) {
+#   print(var)
+#   print(string)
+#   result <- paste(as.character(string),'_new', sep="")
+#   return(result)
+# }
+# 
+# 
+# labels = tibble(p = 0:4, q = 0:4)
+
+tt_full %>% 
+  filter(p <= 3, q <= 3) %>% 
+  ggplot(aes(x = n_unstable, y = value_aic)) +
+  geom_point() + facet_grid(p~q, labeller = label_both, scales = "free_y") +
+  ggtitle("Dependence of AIC Value w.r.t. Number of MA Roots Inside The Unit Circle") -> pp
+
+plotly::ggplotly(pp)
+```
+
+```{r}
+tt_full %>% 
+  filter(p <= 3, q <= 3) %>% 
+  ggplot(aes(x = n_unstable, y = value_aic)) +
+  geom_point() + facet_grid(p~q, labeller = label_both) +
+  labs(title = "Dependence of AIC Value w.r.t. Integer-Valued Parameters") + 
+  theme_bw() + 
+  theme(plot.title = element_text(vjust = 1)) +
+  ylab("AIC Value") + xlab("Number of MA Roots Inside the Unit Circle")-> pp
+
+ggsave(filename = "../local_data/paper_outputs/AICdependence.eps",
+       plot = pp,
+       device = "eps")
+
+plotly::ggplotly(pp)
+
+
+```
+
+# Plot BIC
+
+## Dependence on sum of AR and MA order
+
+```{r}
+tt_full %>% 
+  ggplot(aes(x = p_plus_q, y = value_aic, color = as.factor(q))) +
+  geom_point() -> pp
+
+plotly::ggplotly(pp)
+```
+
+## Dependence on number of unstable roots, colors for different number of system parameters
+
+```{r}
+tt_full %>% 
+  filter(p<=3, q<=3) %>% 
+  ggplot(aes(x = n_unstable, y = value_bic, color = as.factor(p_plus_q), shape = as.factor(p_plus_q))) +
+  geom_point() +
+  theme_bw() + 
+  ggtitle("BIC Value w.r.t. Number of MA Roots Inside the Unit Circle") + 
+  xlab("Number of MA Roots Inside the Unit Circle") + ylab("BIC Value") + 
+  labs(shape = "p plus q") + labs(color = "p plus q") +
+  theme(legend.title = element_text(hjust = 0 ,vjust = 0)) -> pp
+
+plotly::ggplotly(pp)
+```
+
+## Dependence on sum of AR and MA order
+
+```{r}
+tt_full %>% 
+  filter(q <= 4, p <= 4) %>% 
+  ggplot(aes(x = p_plus_q, y = value_bic, shape = as.factor(p), color = as.factor(q))) +
+  geom_point() + 
+  scale_shape_discrete(name = "AR and MA \norder (p,q)") +
+  scale_color_discrete(name = "") -> pp
+
+plotly::ggplotly(pp)
+```
+
+```{r}
+tt_full %>% 
+  filter(q <= 4, p <= 4) %>% 
+  ggplot(aes(x = p_plus_q, y = value_bic, color = as.factor(q), shape = as.factor(p))) +
+  geom_point() + 
+  scale_color_discrete(name = "MA and MA \norder (q,p)") +
+  scale_shape_discrete(name = "") -> pp
+
+plotly::ggplotly(pp)
+```
+
+## Dependence on number of unstable roots, colors for different number of system parameters
+
+```{r}
+tt_full %>% 
+  filter(p <= 3, q <= 3) %>% 
+  ggplot(aes(x = n_unstable, y = value_bic)) +
+  geom_point() + facet_grid(p~q, labeller = label_both) +
+  labs(title = "Dependence of BIC Value w.r.t. Integer-Valued Parameters") + 
+  theme_bw() + 
+  theme(plot.title = element_text(vjust = 1)) +
+  ylab("BIC Value") + xlab("Number of MA Roots Inside the Unit Circle")-> pp
+
+plotly::ggplotly(pp)
+
+ggsave(filename = "../local_data/paper_outputs/BICdependence_bq.eps",
+       plot = pp,
+       device = "eps")
+```
+
+```{r}
+tt_full %>% 
+  filter(p <= 3, q <= 3) %>% 
+  ggplot(aes(x = n_unstable, y = value_aic)) +
+  geom_point() + facet_grid(rows = vars(p), cols = vars(q)) -> pp
+
+plotly::ggplotly(pp)
+```
+

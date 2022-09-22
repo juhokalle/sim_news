@@ -1,0 +1,612 @@
+---
+title: "IRFs"
+author: "Bernd Funovits"
+output: 
+  html_document:
+    code_folding: show  
+    df_print: paged
+    toc: yes
+    toc_depth: '3'    
+    toc_float:
+      collapsed: no
+params:
+  JOBID: 2021020701
+  PATH: "../local_data/p_whf/ukko_bq_jobid_"
+  PATH_DATASET: "../local_data/g_gmr_bq/data_xts.rds"
+  SAVE_PLOTS: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pkgs = c("svarmawhf", "svars", "tidyverse")
+void = lapply(pkgs, library, character.only = TRUE)
+
+# Helper function for creating nice DataTables for html output
+
+dtable = function(x){
+  x %>% 
+    select(-where(is.list)) %>% 
+    mutate_if(is.numeric, round, digits = 7) %>% 
+    DT::datatable(extensions = c('Buttons', 'Scroller', 'ColReorder'), 
+                  options = list(dom = 'Bflirtp', buttons = I('colvis'), 
+                                 deferRender = TRUE, scrollY = 350, scrollX = TRUE, scroller = TRUE,
+                                 colReorder = TRUE),
+                  filter = list(position = 'top', clear = TRUE))
+}
+
+```
+
+# Summary
+
+We obtain the IRFs for some of the best models (with respect to AIC/BIC/Shapiro-Wilk/Jarque-Bera/Ljung-Box).
+We use either estimated values for the static shock transmission matrix $B$ or impose the long-run restriction suggested by Blanchard and Quah (1989).
+
+In addition, we generate the IRFs of Blanchard and Quah (1989) and GMR.
+
+# Preliminaries
+
+## Load and plot data
+
+```{r}
+tt = readRDS(paste0(params$PATH, params$JOBID, "/",
+                    "e_residualcheck_end.rds")) %>% arrange(rk_bic)
+
+DATASET = readRDS(params$PATH_DATASET)
+dygraphs::dygraph(DATASET)
+
+DATASET = DATASET %>% as.matrix()
+DIM_OUT = dim(DATASET)[2]
+N_OBS = dim(DATASET)[1]
+```
+
+## Define some functions for IRFs
+
+```{r}
+
+# Permute static shock transmission matrix B and change signs
+
+permute_chgsign = function(irf_array, 
+                           perm = rep(1, dim(irf_array)[1]), 
+                           sign = rep(1, dim(irf_array)[1])){
+  
+  dim_out = dim(irf_array)[1]
+  
+  perm_mat = diag(dim_out)
+  perm_mat = perm_mat[,perm]
+  
+  sign = diag(sign)
+  
+  ll = map(1:dim(irf_array)[3], ~ irf_array[,,.x] %*% perm_mat %*% sign)
+  
+  irf_array = array(0, dim = c(dim_out, dim_out, dim(irf_array)[3]))
+  for (ix in 1:dim(irf_array)[3]){
+    irf_array[,,ix] = ll[[ix]] 
+  }
+  
+  return(irf_array)
+}
+
+# Plot IRF
+
+plot_irf = function(irf_array){
+  plot(pseries(irf_array %>% polm(), lag.max = 40))
+}
+
+
+# Calculate the cumulative sum of the IRF coefficients for a given element 
+
+irf_cumsum = function(irf_array, el_mat){
+  
+  stopifnot("*el_mat* should be a matrix with two columns where each row contains the indices for which the cumulative sum should be calculated" = 
+            dim(el_mat)[2] == 2)
+  
+  for (ix in (1:nrow(el_mat))){
+    irf_array[el_mat[ix,1], el_mat[ix,2], ] = irf_array[el_mat[ix,1], el_mat[ix,2], ] %>% cumsum()
+  }
+  
+  return(irf_array)
+}
+
+
+# Rotate the static shock transmission matrix such that there is no long-run effect
+
+rotate_longrun = function(irf_array){
+
+  dim_out = dim(irf_array)[1]
+  
+  stopifnot("Number of outputs must be equal to 2" = dim_out == 2)
+  
+  k1 = freqresp(armamod(lmfd(polm(diag(dim_out)), polm(irf_array)), sigma_L = diag(dim_out)), n.f = 1)$frr
+  lq = lq_decomposition(matrix(c(Re(k1)), nrow = dim_out))
+  Q = lq$q
+
+  jj = map(1:dim(irf_array)[3], ~ irf_array[,,.x] %*% t(Q))
+  
+  irf_array = array(0, dim = c(dim_out, dim_out,dim(irf_array)[3]))
+  for (ix in 1:dim(irf_array)[3]){
+    irf_array[,,ix] = jj[[ix]] 
+  }
+
+return(irf_array)
+}
+
+
+
+```
+
+## Model statistics
+
+```{r}
+tt %>%
+  select(-nr, -p_plus_q, -rk_mle, -contains("value"), -contains("cov"), -contains("pval")) %>% 
+  filter(normality_flag == 0, lb_flag == 0) %>% 
+  dtable()
+```
+
+# Blanchard Quah AR(8)
+
+Function that calculates the cumulative IRF for some variables of choice.
+Here, we are interested in log(GNP) and not its change.
+
+Estimate a VAR(8) model with the **svars** package.
+
+```{r}
+vars_bq = VAR(DATASET, p = 8, type = "none")
+vars_irf_bq = irf(vars_bq, n.ahead = 100)
+```
+
+Transform it to **rationalmatrices/RLDM** style and create a first plot.
+
+```{r}
+irf_bq = array(0, dim = c(2,2,101))
+irf_bq[,1,] = t(vars_irf_bq$irf$rGDPgrowth_demeaned)
+irf_bq[,2,] = t(vars_irf_bq$irf$unemp_detrended)
+
+plot(pseries(polm(irf_bq), lag.max = 100))
+```
+
+Calculate the long-run response, LQ decompose it, rotate the static shock impact matrix, transform the transfer function s.t. the demand shock is transitory.
+
+```{r}
+k1 = matrix(c(colSums(vars_irf_bq$irf$rGDPgrowth_demeaned),
+              colSums(vars_irf_bq$irf$unemp_detrended)),
+            nrow = 2)
+lq = lq_decomposition(k1)
+Q = lq$q
+ 
+ii = map(1:101, ~ irf_bq[,,.x] %*% t(Q))
+
+irf_bq_lr = array(0, dim = c(2,2,101))
+for (ix in 1:101){
+  irf_bq_lr[,,ix] = ii[[ix]] 
+}
+rm(k1, Q, ii, irf_bq)
+```
+
+
+Check the result : transfer function evaluated at $1$ should be triangular.
+
+```{r}
+apply(irf_bq_lr, c(1,2), sum) %>% zapsmall()
+```
+
+Plot the rotated IRF
+
+```{r}
+plot(pseries(irf_bq_lr %>% polm(), lag.max = 40))
+
+irf_bq_lr_cumsum = irf_cumsum(irf_bq_lr, matrix(c(1,1,1,2), nrow = 2))
+```
+
+Plot the rotated IRF where the response to (log) GNP is cumulated.
+
+```{r}
+plot(pseries(irf_bq_lr_cumsum %>% polm(), lag.max = 40))
+```
+
+Permute columns and change sign such that the plots align with the ones in Blanchard and Quah.
+
+```{r}
+
+jj = map(1:101, ~ irf_bq_lr_cumsum[,,.x] %*% matrix(c(0,-1,1,0), nrow = 2))
+
+irf_bq_lr_cumsum_permuted = array(0, dim = c(2,2,101))
+for (ix in 1:101){
+  irf_bq_lr_cumsum_permuted[,,ix] = jj[[ix]] 
+}
+
+plot(pseries(irf_bq_lr_cumsum_permuted %>% polm(), lag.max = 40))
+```
+
+# GMR VARMA(4,1, k = 1)
+
+```{r}
+if(!file.exists("../local_data/gmr_results_bq.rds")){
+  load("~/r_projects/gmr_ssvarma/results/BQ/results.MLE.4lags.res")
+  write_rds(res.estim.MLE, "../local_data/gmr_results_bq.rds")
+  gmr_results_bq = res.estim.MLE
+} else{
+  gmr_results_bq = read_rds("../local_data/gmr_results_bq.rds")
+}
+```
+
+Convert GMR results to **rationalmatrices/RLDM** style.
+
+```{r}
+ar_gmr = gmr_results_bq$Phi
+ma_gmr = gmr_results_bq$Theta
+B_gmr = gmr_results_bq$C
+
+polm_ar = array(c(c(diag(2)),
+                  -c(ar_gmr)),
+                dim = c(2,2,5)) %>% polm()
+
+polm_ma = array(c(c(diag(2)),
+                  -c(ma_gmr)),
+                dim = c(2,2,2)) %>% polm()
+
+B = gmr_results_bq$C
+
+lmfd_obj = lmfd(polm_ar, polm_ma %r% B) 
+```
+
+Check poles and zeros
+
+```{r}
+polm_ar %>% zeroes() %>% abs()
+polm_ma %>% zeroes() %>% abs()
+```
+
+```{r}
+irf_gmr = pseries(lmfd_obj, lag.max = 40) %>% unclass()
+plot_irf(irf_gmr)
+```
+
+```{r}
+irf_gmr_cumsum = irf_cumsum(irf_gmr, 
+                           el_mat = matrix(c(1,1,1,2), nrow = 2))
+
+plot_irf(irf_gmr_cumsum)
+```
+
+Permute columns such that results align
+
+```{r}
+irf_gmr_cumsum_permuted = permute_chgsign(irf_gmr_cumsum, perm = c(2,1))
+plot_irf(irf_gmr_cumsum_permuted)
+```
+
+# BF VARMA(1,2, kappa = 1, k = 0)
+
+Extract appropriate inter-valued parameters.
+
+```{r}
+tt %>% 
+  filter(p==1 & q==2 & kappa==1 & k==0) %>% 
+  select(p_plus_q, p,q, kappa, k, starts_with("rk_"), cov_el_sum, value_final, value_aic, value_bic, everything()) -> tt_bf_12_2 
+```
+
+Create an ARMA-WHF model:
+
+```{r}
+bf_params_12_2 = tt_bf_12_2$params_deep_final %>% .[[1]]
+bf_tmpl_12_2 = tt_bf_12_2$tmpl %>% .[[1]]
+
+write_rds(bf_params_12_2, "../local_data/p_whf/best_mod_rob/bf_params_12_2.rds")
+write_rds(bf_tmpl_12_2, "../local_data/p_whf/best_mod_rob/bf_tmpl_12_2.rds")
+
+
+bf_armawhfmod_12_2 = fill_tmpl_whf_rev(bf_params_12_2, bf_tmpl_12_2)
+```
+
+Create IRF, cumulate GNP, and plot:
+
+```{r}
+bf_irf_12_2 = irf_whf(bf_params_12_2, bf_tmpl_12_2, n_lags = 40) %>% unclass()
+bf_irf_12_2_cumsum = bf_irf_12_2 %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_12_2_cumsum %>% plot_irf()
+bf_irf_12_2_cumsum_permuted = bf_irf_12_2_cumsum
+```
+
+Rotate such that BQ long-run restriction is satisfied, plot, sign-permute, and plot again.
+
+```{r}
+bf_irf_12_2_lr = bf_irf_12_2 %>% rotate_longrun()
+bf_irf_12_2_lr_cumsum = bf_irf_12_2_lr %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_12_2_lr_cumsum %>% plot_irf()
+
+bf_irf_12_2_lr_cumsum_permuted = bf_irf_12_2_lr_cumsum %>% permute_chgsign(perm = c(2,1),
+                                                                           sign = c(-1,1))
+bf_irf_12_2_lr_cumsum_permuted %>% plot_irf()
+```
+
+
+# BF VARMA(1,3, kappa = 1, k = 0)
+
+Extract appropriate inter-valued parameters.
+
+```{r}
+tt %>% 
+  filter(p==1 & q==3 & kappa==1 & k==0) %>% 
+  select(p_plus_q, p,q, kappa, k, starts_with("rk_"), cov_el_sum, value_final, value_aic, value_bic, everything()) -> tt_bf_13_2 
+```
+
+Create an ARMA-WHF model:
+
+```{r}
+bf_params_13_2 = tt_bf_13_2$params_deep_final %>% .[[1]]
+bf_tmpl_13_2 = tt_bf_13_2$tmpl %>% .[[1]]
+
+bf_armawhfmod_13_2 = fill_tmpl_whf_rev(bf_params_13_2, bf_tmpl_13_2)
+```
+
+Create IRF, cumulate GNP, and plot:
+
+```{r}
+bf_irf_13_2 = irf_whf(bf_params_13_2, bf_tmpl_13_2, n_lags = 40) %>% unclass()
+bf_irf_13_2_cumsum = bf_irf_13_2 %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_13_2_cumsum %>% plot_irf()
+bf_irf_13_2_cumsum_permuted = bf_irf_13_2_cumsum
+```
+
+Rotate such that BQ long-run restriction is satisfied, plot, sign-permute, and plot again.
+
+```{r}
+bf_irf_13_2_lr = bf_irf_13_2 %>% rotate_longrun()
+bf_irf_13_2_lr_cumsum = bf_irf_13_2_lr %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_13_2_lr_cumsum %>% plot_irf()
+
+bf_irf_13_2_lr_cumsum_permuted = bf_irf_13_2_lr_cumsum %>% permute_chgsign(perm = c(2,1),
+                                                                           sign = c(-1,1))
+bf_irf_13_2_lr_cumsum_permuted %>% plot_irf()
+```
+
+
+# BF VARMA(3,1, kappa = 1, k = 0)
+
+Extract appropriate inter-valued parameters.
+
+```{r}
+tt %>% 
+  filter(p==3 & q==1 & kappa==1 & k==0) %>% 
+  select(p_plus_q, p,q, kappa, k, starts_with("rk_"), cov_el_sum, value_final, value_aic, value_bic, everything()) -> tt_bf_31_2 
+```
+
+Create an ARMA-WHF model:
+
+```{r}
+bf_params_31_2 = tt_bf_31_2$params_deep_final %>% .[[1]]
+bf_tmpl_31_2 = tt_bf_31_2$tmpl %>% .[[1]]
+
+bf_armawhfmod_31_2 = fill_tmpl_whf_rev(bf_params_31_2, bf_tmpl_31_2)
+```
+
+Create IRF, cumulate GNP, and plot:
+
+```{r}
+bf_irf_31_2 = irf_whf(bf_params_31_2, bf_tmpl_31_2, n_lags = 40) %>% unclass()
+bf_irf_31_2_cumsum = bf_irf_31_2 %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_31_2_cumsum %>% plot_irf()
+```
+
+Sign-permute such that shocks are labelled consistently.
+
+```{r}
+bf_irf_31_2_cumsum_permuted = bf_irf_31_2_cumsum %>% permute_chgsign(perm = c(2,1),
+                                                                     sign = c(1,1))
+bf_irf_31_2_cumsum_permuted %>% plot_irf()
+```
+
+Rotate such that BQ long-run restriction is satisfied, plot, sign-permute, and plot again.
+
+```{r}
+bf_irf_31_2_lr = bf_irf_31_2 %>% rotate_longrun()
+bf_irf_31_2_lr_cumsum = bf_irf_31_2_lr %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_31_2_lr_cumsum %>% plot_irf()
+
+bf_irf_31_2_lr_cumsum_permuted = bf_irf_31_2_lr_cumsum %>% permute_chgsign(perm = c(2,1),
+                                                                           sign = c(-1,1))
+bf_irf_31_2_lr_cumsum_permuted %>% plot_irf()
+```
+
+# BF VARMA(1,1, kappa = 1)
+
+Extract appropriate inter-valued parameters.
+
+```{r}
+tt %>% 
+  filter(p==1 & q==1 & kappa==1 & k==0) %>% 
+  select(p_plus_q, p,q, kappa, k, starts_with("rk_"), cov_el_sum, value_final, value_aic, value_bic, everything()) -> tt_bf_11_2 
+```
+
+Create an ARMA-WHF model:
+
+```{r}
+bf_params_11_2 = tt_bf_11_2$params_deep_final %>% .[[1]]
+bf_tmpl_11_2 = tt_bf_11_2$tmpl %>% .[[1]]
+
+bf_armawhfmod_11_2 = fill_tmpl_whf_rev(bf_params_11_2, bf_tmpl_11_2)
+```
+
+Create IRF, cumulate GNP, and plot:
+
+```{r}
+bf_irf_11_2 = irf_whf(bf_params_11_2, bf_tmpl_11_2, n_lags = 40) %>% unclass()
+bf_irf_11_2_cumsum = bf_irf_11_2 %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_11_2_cumsum %>% plot_irf()
+```
+
+Sign-permute such that shocks are labelled consistently.
+
+```{r}
+bf_irf_11_2_cumsum_permuted = bf_irf_11_2_cumsum %>% permute_chgsign(perm = c(2,1),
+                                                                     sign = c(-1,-1))
+bf_irf_11_2_cumsum_permuted %>% plot_irf()
+```
+
+Rotate such that BQ long-run restriction is satisfied, plot, sign-permute, and plot again.
+
+```{r}
+bf_irf_11_2_lr = bf_irf_11_2 %>% rotate_longrun()
+bf_irf_11_2_lr_cumsum = bf_irf_11_2_lr %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_11_2_lr_cumsum %>% plot_irf()
+
+bf_irf_11_2_lr_cumsum_permuted = bf_irf_11_2_lr_cumsum %>% permute_chgsign(perm = c(2,1),
+                                                                           sign = c(-1,1))
+bf_irf_11_2_lr_cumsum_permuted %>% plot_irf()
+```
+
+
+# BF VARMA(4,1, kappa = 0, k = 1): GMR's model
+
+Extract appropriate inter-valued parameters.
+
+```{r}
+tt %>% 
+  filter(p==4 & q==1 & kappa==0 & k==1) %>% 
+  select(p_plus_q, p,q, kappa, k, starts_with("rk_"), cov_el_sum, value_final, value_aic, value_bic, everything()) -> tt_bf_41_1 
+```
+
+Create an ARMA-WHF model:
+
+```{r}
+bf_params_41_1 = tt_bf_41_1$params_deep_final %>% .[[1]]
+bf_tmpl_41_1 = tt_bf_41_1$tmpl %>% .[[1]]
+
+bf_armawhfmod_41_1 = fill_tmpl_whf_rev(bf_params_41_1, bf_tmpl_41_1)
+```
+
+Create IRF, cumulate GNP, and plot:
+
+```{r}
+bf_irf_41_1 = irf_whf(bf_params_41_1, bf_tmpl_41_1, n_lags = 40) %>% unclass()
+bf_irf_41_1_cumsum = bf_irf_41_1 %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_41_1_cumsum %>% plot_irf()
+```
+
+Sign-permute such that shocks are labelled consistently.
+
+```{r}
+bf_irf_41_1_cumsum_permuted = bf_irf_41_1_cumsum %>% permute_chgsign(perm = c(2,1))
+bf_irf_41_1_cumsum_permuted %>% plot_irf()
+```
+
+Rotate such that BQ long-run restriction is satisfied, plot, sign-permute, and plot again.
+
+```{r}
+bf_irf_41_1_lr = bf_irf_41_1 %>% rotate_longrun()
+bf_irf_41_1_lr_cumsum = bf_irf_41_1_lr %>% irf_cumsum(el_mat = matrix(c(1,1,1,2), nrow = 2))
+bf_irf_41_1_lr_cumsum %>% plot_irf()
+
+bf_irf_41_1_lr_cumsum_permuted = bf_irf_41_1_lr_cumsum %>% permute_chgsign(perm = c(2,1),
+                                                                           sign = c(-1,1))
+bf_irf_41_1_lr_cumsum_permuted %>% plot_irf()
+```
+
+# Summary
+
+```{r}
+list_mods = tibble(BQ_AR8 = irf_bq_lr_cumsum_permuted[,,1:41] %>% list(),
+                   GMR_ARMA41_1 = irf_gmr_cumsum_permuted %>% list(),
+                   BF_ARMA11_2 = bf_irf_11_2_cumsum_permuted %>% list(),
+                   BF_ARMA11_2_lr = bf_irf_11_2_lr_cumsum_permuted %>% list(),
+                   BF_ARMA12_2 = bf_irf_12_2_cumsum_permuted %>% list(),
+                   BF_ARMA12_2_lr = bf_irf_12_2_lr_cumsum_permuted %>% list(),
+                   BF_ARMA13_2 = bf_irf_13_2_cumsum_permuted %>% list(),
+                   BF_ARMA13_2_lr = bf_irf_13_2_lr_cumsum_permuted %>% list(),
+                   BF_ARMA31_2 = bf_irf_31_2_cumsum_permuted %>% list(),
+                   BF_ARMA31_2_lr = bf_irf_31_2_lr_cumsum_permuted %>% list(),
+                   BF_ARMA41_1 = bf_irf_41_1_cumsum_permuted %>% list(),
+                   BF_ARMA41_1_lr = bf_irf_41_1_lr_cumsum_permuted %>% list())
+
+list_mods %>% pivot_longer(everything()) %>% 
+  mutate(Demand2GNP = map(value, ~.x[1,1,]),
+         Demand2Unempl = map(value, ~.x[2,1,]),
+         Supply2GNP = map(value, ~.x[1,2,]),
+         Supply2Unempl = map(value, ~.x[2,2,])) %>% 
+  select(-value) %>% 
+  pivot_longer(c("Demand2GNP", "Demand2Unempl", "Supply2GNP", "Supply2Unempl"), 
+               names_to = "Response_Type", values_to = "Impact") %>% 
+  separate(Response_Type, into = c("Shock", "Output"), sep = "2") %>% 
+  unnest_longer(Impact, indices_include = TRUE) %>% 
+  rename(Lag = Impact_id,
+         Model = name) %>% 
+  mutate(Lag = Lag-1) -> tibble_irf
+```
+
+
+```{r}
+tibble_irf %>% 
+  # filter(Model != "BF_ARMA11_2") %>% 
+  ggplot(aes(x = Lag, y = Impact, color = Model)) +
+  geom_line() + geom_point() + facet_grid(Output~Shock) -> ply
+
+plotly::ggplotly(ply)
+
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+
+# Extracting Output for Paper
+
+```{r}
+tibble_irf %>% 
+  #filter(Model %in% c("BF_ARMA12_2", "BF_ARMA12_2_lr", "BQ_AR8", "GMR_ARMA41_1")) %>%
+  #filter(Model %in% c("BF_ARMA12_2", "BF_ARMA13_2", "BQ_AR8", "GMR_ARMA41_1")) %>%
+  filter(Model %in% c("BF_ARMA12_2", "BQ_AR8", "GMR_ARMA41_1")) %>%
+  #filter(Model %in% c("BF_ARMA12_2_lr", "BQ_AR8")) %>%
+  filter(Lag <= 30) %>% 
+  mutate(Model = case_when(Model == "BF_ARMA12_2" ~ "BF: ARMA(1,2,1,0)",
+                           Model == "BF_ARMA13_2" ~ "BF: ARMA(1,3,1,0)",
+                           Model == "BF_ARMA12_2_lr" ~"BF: ARMA(1,2,1,0) \n       Long-run rotated",
+                           Model == "BQ_AR8" ~"BQ: VAR(8)",
+                           Model == "GMR_ARMA41_1" ~"GMR: VARMA(4,1,0,1)")) %>% 
+  ggplot(aes(x = Lag, y = Impact, color = Model, shape = Model)) +
+    ggtitle("Comparison of Impulse Responses in the Blanchard Quah Model") +
+  geom_line() + geom_point() + facet_grid(Output~Shock, scales = "free_y") + theme_bw() -> pp
+
+pp
+
+if (!file.exists("../local_data/paper_outputs/IRFs.eps") && params$SAVE_PLOTS){
+  ggsave(filename = "../local_data/paper_outputs/IRFs.eps", plot = pp, device = "eps", width = 8, height = 5)
+}
+
+
+```
+
+```{r}
+tibble_irf %>% 
+  filter(Model %in% c("BF_ARMA12_2", "BQ_AR8", "BF_ARMA12_2_lr")) %>%
+  filter(Lag <= 30) %>% 
+  mutate(Model = case_when(Model == "BF_ARMA12_2" ~ "BF: ARMA(1,2,1,0)",
+                           Model == "BF_ARMA13_2" ~ "BF: ARMA(1,3,1,0)",
+                           Model == "BF_ARMA12_2_lr" ~"BF: ARMA(1,2,1,0) \n       Long-run rotated",
+                           Model == "BQ_AR8" ~"BQ: VAR(8)",
+                           Model == "GMR_ARMA41_1" ~"GMR: VARMA(4,1,0,1)")) %>% 
+  ggplot(aes(x = Lag, y = Impact, color = Model, shape = Model)) +
+    ggtitle("Comparison of Rotated Impulse Responses in the Blanchard Quah Model", subtitle = "No Long-Run Impact of Demand Shock") +
+  geom_line() + geom_point() + facet_grid(Output~Shock, scales = "free_y") + theme_bw() -> pp
+
+pp
+
+if (!file.exists("../local_data/paper_outputs/IRFs_bf_lr.eps") && params$SAVE_PLOTS){
+   ggsave(filename = "../local_data/paper_outputs/IRFs_bf_lr.eps", plot = pp, device = "eps", width = 8, height = 5)
+}
+
+```
+
+```{r}
+tibble_irf %>% 
+  filter(Model %in% c("BF_ARMA12_2", "BF_ARMA12_2_lr", "BQ_AR8", "GMR_ARMA41_1")) %>%
+  mutate(Model = case_when(Model == "BF_ARMA12_2" ~ "BF: ARMA(1,2,1,0)",
+                           Model == "BF_ARMA12_2_lr" ~"BF: ARMA(1,2,1,0) \n    Long-run rotated",
+                           Model == "BQ_AR8" ~"BQ: VAR(8)",
+                           Model == "GMR_ARMA41_1" ~"GMR: VARMA(4,1,0,1)")) %>% 
+  ggplot(aes(x = Lag, y = Impact, color = Model, shape = Model)) +
+    ggtitle("Impulse Responses") +
+  geom_line() + geom_point() + facet_grid(Output~Shock) 
+
+```
