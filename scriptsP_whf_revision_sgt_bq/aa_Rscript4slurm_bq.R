@@ -19,8 +19,8 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "./local_data/data_xts.rds"
 
-params$AR_ORDER_MAX = 8
-params$MA_ORDER_MAX = 8
+params$AR_ORDER_MAX = 5
+params$MA_ORDER_MAX = 5
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
@@ -40,7 +40,7 @@ params$USE_NM_SGT = TRUE
 params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 
-params$PATH_RESULTS_HELPER = "../local_data/p_whf/ukko_bq_"
+params$PATH_RESULTS_HELPER = "~/sim_news/local_data/p_whf/ukko_bq_"
 
 
 cat("\n--------------------------------------------------\n")
