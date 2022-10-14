@@ -34,44 +34,93 @@ ff <- function(x, zero_ix, input_mat){
   sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
 }
 
-get_irf <- function(datamat, n_lags, id.type = c("chol", "n_gaus"), n_ahead, zero_rest = NULL){
+get_irf <- function(..., id.type = c("chol", "n_gaus", "fevd_id"), n_ahead, zero_rest = NULL, hrz = 15){
   
-  nobs <- dim(datamat)[1]
-  n_var <- dim(datamat)[2]
-  var_out <- vars::VAR(datamat, p = n_lags, type = "both")
+  var_out <- vars::VAR(...)
+  nobs <- dim(var_out$y)[1]
+  n_var <- dim(var_out$y)[2]
   if(id.type=="chol"){
     bmat <- var_out %>% residuals %>% var %>% chol %>% t
   } else if(id.type=="n_gaus"){
-    bmat <- svars::id.ngml(var_out)$B
-    if(!is.null(zero_rest)){
-      incr <- 0
-      conv_crit <- 1
-      while(conv_crit>sqrt(.Machine$double.eps)){
-        grid <- 0.01*pi*incr + sqrt(.Machine$double.eps)
-        opt_out <- optim(par = rep(0, choose(n_var, 2)),
-                         fn = ff,
-                         method = "L-BFGS-B",
-                         zero_ix = zero_rest,
-                         input_mat = bmat,
-                         lower = -rep(grid, choose(n_var, 2)), 
-                         upper = rep(grid, choose(n_var, 2)))
-        conv_crit <- opt_out$value
-        incr <- incr+1
+    rest_mat <- matrix(NA, n_var, n_var)
+    rest_mat[zero_rest[1], zero_rest[2]] <- 0
+    svar_obj <- svars::id.ngml(var_out, restriction_matrix = rest_mat)
+    bmat <- svar_obj$B
+    fevd_var <- fevd(svar_obj)
+    if(!is.null(zero_rest)) lratio <- svar_obj$lRatioTest
+  } else if(id.type=="fevd_id"){
+    chol_fac <- var_out %>% residuals %>% var %>% chol %>% t
+    irf_i <- var_out %>% irf(boot=FALSE, n.ahead = n_ahead, ortho = FALSE) %>% .$irf %>%
+      reduce(cbind) %>% t %>% c %>% array(dim=c(n_var, n_var, n_ahead+1))
+    arg_max <- matrix(0, n_var, n_var)
+    for(h in 1:(hrz+1)){
+      for(tau in 1:h){
+        arg_max <- crossprod(irf_i[1,,tau]%*%chol_fac) + arg_max
       }
-      bmat <- bmat%*%rotmat(opt_out$par, n_var)
     }
+    gamma_out <- matrix(0, n_var, 1)
+    gamma_out[-zero_rest,1] <- eigen(arg_max[-zero_rest,-zero_rest])$vector[,1]
+
+    bmat <- diag(n_var)
+    bmat[,1] <- gamma_out
+    bmat <- chol_fac%*%bmat
   } else{
     stop("Specify identification scheme correctly")
   }
   irf_out <- var_out %>% irf(boot=FALSE, n.ahead = n_ahead, ortho = FALSE) %>% .$irf %>%
     reduce(cbind) %>% t %>% c %>% array(dim=c(n_var, n_var, n_ahead+1))
-  list_out <- list(irf = unclass(pseries(irf_out, n_ahead)%r%bmat), bmat = bmat)
-  if(!is.null(zero_rest)){
-    list_out$rotmat <- rotmat(opt_out$par, n_var)
-    list_out$incr <- incr
+  list_out <- list(irf = unclass(pseries(irf_out, n_ahead)%r%bmat), 
+                   bmat = bmat, 
+                   resids = residuals(var_out))
+  if(id.type=="n_gaus"){ 
+    list_out$fevd <- fevd_var
+    if(!is.null(zero_rest)) list_out$lratio <- lratio
   }
   return(list_out)
 }
+
+plot_irf <- function(irf_arr, var_name, shock_name){
+  n_var <- dim(irf_arr)[1]
+  n_shock <- dim(irf_arr)[2]
+  n_ahead <- dim(irf_arr)[3]-1
+  tibble(irf = c(irf_arr),
+         variable = var_name %>% 
+           factor(levels = var_name) %>% 
+           rep((n_ahead+1)*n_shock),
+         shock = shock_name %>% 
+           factor(levels=shock_name) %>% 
+           rep(each=n_var) %>% 
+           rep(n_ahead+1),
+         months = rep(0:n_ahead, each = n_var*n_shock)) %>% 
+    ggplot(aes(x=months, y = irf)) +
+    geom_line() +
+    geom_hline(yintercept = 0, size = 0.15) +
+    facet_grid(variable ~ shock, scales = "free_y") +
+    facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
+    scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
+    scale_y_continuous(n.breaks = 5) +
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 0),
+          axis.title.y = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.spacing = unit(.5, "lines"),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          strip.background = element_blank(),
+          axis.line = element_line(colour = "black"))
+}
+
+norm_irf <- function(irf_arr, norm_int, norm_scm = c("surp", "news")){
+
+  n_var <- dim(irf_arr)[1]
+  if(norm_scm=="surp"){
+    irf_arr <- irf_arr[,1,,drop=FALSE]/irf_arr[n_var,1,1]*norm_int
+  } else if(norm_scm=="news"){
+    irf_arr <- irf_arr[,1,,drop=FALSE]/max(irf_arr[n_var,1,])*norm_int
+  }
+  irf_arr
+}
+
 ```
 
 # Introduction and preliminaries
@@ -97,7 +146,8 @@ $$
 y_t = (z_t', MPR_t)'.
 $$
 
-```{r load econ vars, include=FALSE}
+```{r load data, include=FALSE}
+n_ahead <- 48
 bs_data <- read_excel(path = "./local_data/FOMC_Bauer_Swanson.xlsx", 
                       sheet = "Monthly SVAR Data") %>% 
   rename(date = ...1, GS2 = `2y Treas`) %>% 
@@ -115,24 +165,31 @@ ramey_rep <- read_excel(path = "./local_data/Monetarydat_ramey.xlsx",
 
 fred_md <- fredmd("http://files.stlouisfed.org/files/htdocs/fred-md/monthly/current.csv",
                   transform = FALSE,
-                  date_start = ymd(19730101)) %>%
+                  date_start = ymd(19720101)) %>%
   as_tibble() %>% 
   mutate(LIP = 100*log(INDPRO),
          LCPI = 100*log(CPIAUCSL),
-         DLCPI = c(rep(NaN, 12), diff(LCPI, 12)))
+         DLCPI = c(rep(NA, 12), diff(LCPI, 12)),
+         DLIP = c(NA, diff(LIP))) %>% 
+  filter(date>ymd(19721201))
+
 ebp <- read_csv("https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv")
 fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
+
+fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds"), dplyr::select(bs_data, date, GS2)) %>% 
+  reduce(left_join, by = "date")
 ```
 
 ```{r plot, echo=FALSE}
 fred_md %>%
-  dplyr::select(date, LIP, LCPI, FEDFUNDS, EBP) %>% 
-  filter(date>=ymd(19821001), date<ymd(20090101)) %>%
-  mutate_at(vars(starts_with("L")), ~residuals(lm(.~1+I(1:n())))) %>% 
+  dplyr::select(date, LIP, LCPI, FEDFUNDS, EBP, resid_full) %>% 
+  mutate(resid_full=cumsum(resid_full)) %>% 
+  filter(date>=ymd(19821001), date<ymd(20080101)) %>%
+  #mutate_at(vars(starts_with("L")), ~residuals(lm(.~1+I(1:n())))) %>% 
   pivot_longer(-date, names_to = "Variable", values_to = "Value") %>% 
   ggplot(aes(date, Value, color = Variable)) + 
   geom_line() + 
-  facet_grid(factor(Variable, levels = c("LIP", "LCPI", "FEDFUNDS", "EBP")) ~ ., scales = "free_y") + 
+  facet_grid(factor(Variable, levels = c("LIP", "LCPI", "FEDFUNDS", "EBP", "resid_full")) ~ ., scales = "free_y") + 
   scale_x_date(date_labels = "%b %Y",date_breaks = "1 year", expand = c(10^-2,1) ) + 
   theme(legend.position = "none", 
       axis.text.x = element_text(angle = 90),
@@ -143,448 +200,761 @@ fred_md %>%
 
 # Identification
 
-We entertain two identification schemes:
+We entertain three identification schemes:
 
-1. Internal instrument/recursive, where $MPS_t$ is ordered first and the model is identified recursively. This gives results consistent with the external instrument/Proxy-SVAR approach. Only the conventional MP shock is identified and this is primarily used for comparison to the results using identification by non-Gaussianity.
+1. Internal instrument/recursive. $MPS_t$ is ordered first and the model is identified recursively. This gives results consistent with the external instrument/Proxy-SVAR approach. Only the conventional MP shock is identified and this is primarily used for comparison to the results using identification by non-Gaussianity.
 
 2. Identification by non-Gaussianity. The aim is to identify structural shocks both to $FFR_t$ and $MPS_t$, where the former is the conventional and the latter is an anticipated monetary news shock. The identification is achieved by assuming shock non-Gaussianity combined with the short-run restriction that the news shock does not have contemporaneous effect on $MPS_t$.
 
-# Results: Baseline VAR
+3. FEVD. Only news shock is identified using this method. This method identifies the news shock as the one that maximizes the FEV of $MPR_t$ in a given forecast horizon. Details [here](https://assets.aeaweb.org/asset-server/articles-attachments/aer/data/oct2013/20110331_app.pdf).
 
-```{r basis VAR, include=FALSE}
-n_ahead <- 48
+
+# 2y Gov't bond
+```{r gs2, include=FALSE}
 svar_data <- fred_md %>%
-  dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>% 
-  filter(date>=ymd(19821001), date<ymd(20080101)) %>%
-  mutate_if(is.numeric, ~. - mean(.)) %>% 
-  mutate_at(vars(starts_with("L")), ~residuals(lm(. ~ I(1:n())))) %>%
-  dplyr::select(-date)
+  dplyr::select(date, GS2, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  filter(complete.cases(.), date<ymd(20190101), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x-mean(.x))
+
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
 ```
 
-
-```{r basis VARb, echo=FALSE}
-irf_bl <- get_irf(datamat = svar_data, n_lags = 12, id.type = "n_gaus", n_ahead = n_ahead)
-
-tibble(irf = c(irf_bl$irf[,4,]), 
-       months=rep(0:n_ahead, each=4), 
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS")) %>% 
-         rep(n_ahead + 1)) %>% 
-  mutate(irf = irf/irf[4]*0.25) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ ., scales = "free_y") + 
-  scale_x_continuous(breaks = seq(0, n_ahead, by = 6)[-1], expand = c(0,0)) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_rect(fill="azure"),
-        axis.line = element_line(colour = "black")) +
-    ggtitle("Baseline VAR", subtitle = "responses to 25bp MP shock")
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
 ```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
+
+```{r gs2b, echo=FALSE}
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("2-yr gov't bond, sample:", 
+      svar_data %>% slice(1) %>% .$date, "--",
+      svar_data %>% slice(n()) %>% .$date, sep = " "),
+      subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                       "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
+```
+
 
 # Romer and Romer (2004)
 The Romer and Romer (2004) shock is expected to be short-lived and not to contain a forward guidance component, which would show up in the delayed response of FFR.
 
 ```{r rr04, include=FALSE}
-rr04 <- read_excel(path = "./local_data/shock_list.xlsx",
-                   sheet = "RR04") %>% 
-  mutate(date = substr(date, 1, 4) %>% 
-           paste0(c(rep("0", 9), rep("", 3)), 1:12, "01") %>% ymd) %>% 
-  filter(date>=ymd(19821001), date<ymd(20080101))
+svar_data <- fred_md %>%
+  dplyr::select(date, resid_full, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  mutate(resid_full = cumsum(coalesce(resid_full, 0)) + resid_full*0) %>%
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x-mean(.x))
 
-ds <- svar_data %>% filter(seq(ymd(19821001), ymd(20071201), by="month") %in% rr04$date)
-ds$mpr <- rr04$resid_full
-irf1 <- get_irf(datamat = ds, n_lags = 12, id.type = "n_gaus", n_ahead = 48, zero_rest = c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
 ```
 
 ```{r rr04b, echo=FALSE}
-tibble(irf = pseries(irf1$irf, n_ahead) %>% unclass %>% .[,c(5,4),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Romer and Romer shocks",
-          subtitle = "responses to 25bp shocks")
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("RR shock, sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 
 # Gertler and Karadi (2015)
 ```{r gk15, include=FALSE}
-gk15 <- read_excel(path = "./local_data/shock_list.xlsx",
-                   sheet = "GK15") %>% 
-  mutate(date = paste0(year, ifelse(month<10, "0",""), month, "01") %>% ymd) %>% 
-  filter(date>=ymd(19821001), date<ymd(20090101))
+svar_data <- fred_md %>%
+  dplyr::select(date, mp1_tc, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  mutate(mp1_tc = cumsum(coalesce(mp1_tc, 0)) + mp1_tc*0) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
 
-ds <- svar_data %>% filter(seq(ymd(19821001), ymd(20081201), by="month") %in% gk15$date)
-ds$mpr <- gk15$mp1_tc*100
-irf1 <- get_irf(datamat = ds, n_lags = 12, id.type = "n_gaus", n_ahead = 48, zero_rest = c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
 ```
 
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
 
 ```{r gk15b, echo=FALSE}
-tibble(irf = irf1$irf %>% .[,c(4,5),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Gertler and Karadi shocks (1)",
-          subtitle = "responses to 25bp shocks")
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("GK shock (1), sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 
 ```{r gk15bb, include=FALSE}
-ds <- svar_data %>% filter(seq(ymd(19821001), ymd(20081201), by="month") %in% gk15$date[is.finite(gk15$ff4_tc)])
-ds$mpr <- gk15$ff4_tc[is.finite(gk15$ff4_tc)]*100
-irf1 <- get_irf(datamat = ds, n_lags = 12, id.type = "n_gaus", n_ahead = 48, zero_rest = c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+svar_data <- fred_md %>%
+  dplyr::select(date, ff4_tc, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  mutate(ff4_tc = cumsum(coalesce(ff4_tc, 0)) + ff4_tc*0) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
+
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
 ```
 
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
 
 ```{r gk15bbb, echo=FALSE}
-tibble(irf = pseries(irf1$irf, n_ahead) %>% unclass %>% .[,c(4,5),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Gertler and Karadi shocks (2)",
-          subtitle = "responses to 25bp shocks")
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("GK shock (2), sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
+```
 
+# Bu, Rogers and Wu (2021)
+
+```{r bgw21, include=FALSE}
+svar_data <- fred_md %>%
+  dplyr::select(date, BRW_monthly, LIP, LCPI, EBP, GS2) %>% 
+  #mutate(BRW_monthly = cumsum(coalesce(BRW_monthly, 0)) + BRW_monthly*0) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>% #, date<ymd(20090101)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
+
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
+
+```{r bgw21b, echo=FALSE}
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("BRW shock, sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 
 # Miranda-Agrippino and Ricco (2021)
 
 ```{r mar21, include=FALSE}
-mar21 <- read_excel(path = "./local_data/shock_list.xlsx",
-                   sheet = "MAR21") %>% 
-  mutate(date = paste0(time, "01") %>% ymd) %>% 
-  filter(date>=ymd(19821001), date<ymd(20090101))
+svar_data <- fred_md %>%
+  dplyr::select(date, MM_IV1, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
 
-ds <- svar_data %>% filter(seq(ymd(19821001), ymd(20081201), by="month") %in% mar21$date)
-ds$mpr <- mar21$MM_IV1*100
-irf1 <- get_irf(datamat = ds, n_lags = 12, id.type = "n_gaus", n_ahead = 48, zero_rest = c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
 ```
 
-
-```{r mar21b, echo=FALSE}
-tibble(irf = pseries(irf1$irf, n_ahead) %>% unclass %>% .[,c(4,5),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Miranda-Agrippino and Ricco shocks (1)",
-          subtitle = "responses to 25bp shocks")
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
 ```
 
-```{r mar21bb, include=FALSE}
-ds$mpr <- mar21$MM_IV5*100
-irf1 <- get_irf(datamat = ds, n_lags = 12, id.type = "n_gaus", n_ahead = 48, zero_rest = c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
 ```
 
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
 
-```{r mar21bbb, echo=FALSE}
-tibble(irf = irf1$irf %>% unclass %>% .[,c(4,5),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Miranda-Agrippino and Ricco shocks (2)",
-          subtitle = "responses to 25bp shocks")
+```
+
+```{r MAR21b, echo=FALSE}
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("MAR21 shock (1), sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
+```
+
+```{r MAR21bb, include=FALSE}
+svar_data <- fred_md %>%
+  dplyr::select(date, MM_IV5, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
+
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
+
+```{r MAR21bbb, echo=FALSE}
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("MAR21 shock (2), sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 
 # Jarocinski (2022)
 
 ```{r jaro22, include=FALSE}
-jaro21 <- read_csv("https://marekjarocinski.github.io/files/U1bp.csv")
-jaro21 <- jaro21 %>% 
-  mutate(month = sapply(month, function(x) paste0(if(nchar(x)<2) "0", x)),
-         date = ym(paste0(year, month))) %>% 
-  group_by(date) %>% 
-  summarise_at(vars(starts_with("u")), mean)
-jaro_final <- tibble(date = seq(jaro21$date[1], jaro21$date[nrow(jaro21)], by ="month"),
-                  u1 = 0, u2 = 0, u3 = 0, u4 = 0)
-jaro_final[jaro_final$date %in% jaro21$date, ] <- jaro21
+svar_data <- fred_md %>%
+  dplyr::select(date, u1, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  mutate(u1 = cumsum(coalesce(u1, 0)) + u1*0) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
 
-ds <- svar_data %>% filter(seq(ymd(19821001), ymd(20081201), by="month") %in% jaro_final$date)
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
 
-ds$mpr <- jaro_final %>% filter(date>=ymd(19821001), date<ymd(20090101)) %>%  dplyr::select(u1)
-irf1 <- get_irf(ds, 12, id.type = "n_gaus", 48, zero_rest = c(5,5))
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/irf1$irf[4,4,1]*0.25
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/max(irf1$irf[4,5,])*0.25
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
 ```
 
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
 
 ```{r jaro22b, echo=FALSE}
-tibble(irf = irf1$irf %>% unclass %>% .[,c(5,4),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Miranda-Agrippino and Ricco shocks (2)",
-          subtitle = "responses to 25bp shocks")
-
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("Jaro22 shock, sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 
 # Aruoba and Drechsel (2022)
 
 ```{r ad22, include=FALSE}
-AD22 <- read_excel(path = "./local_data/shock_list.xlsx",
-                   sheet = "AD22") %>% 
-  mutate(date = ymd(str_remove(date, " UTC"))) %>% 
-  filter(date>=ymd(19821001), date<ymd(20090101))
+svar_data <- fred_md %>%
+  dplyr::select(date, Shock, LIP, LCPI, EBP, FEDFUNDS) %>%
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
 
-ds <- svar_data %>% filter(seq(ymd(19821001), ymd(20081201), by="month") %in% AD22$date)
-ds$mpr <- AD22$Shock
-irf1 <- get_irf(datamat = ds, n_lags = 12, n_ahead = 48, id.type = "n_gaus",zero_rest = c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
 ```
 
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
 
-```{r ad22b, echo=FALSE}
-tibble(irf = pseries(irf1$irf, n_ahead) %>% unclass %>% .[,c(4,5),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Aruoba and Drechsel shocks",
-          subtitle = "responses to 25bp shocks")
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
+
+```{r AD22, echo=FALSE}
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("AD22 shock, sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 
 # Bauer and Swanson (2022)
 
 ```{r bs22, include=FALSE}
-BS22 <- read_excel(path = "./local_data/shock_list.xlsx",
-                   sheet = "BS22") %>% 
-  mutate(date = ymd(str_remove(date, " UTC"))) %>% 
-  filter(date>=ymd(19821001), date<ymd(20090101))
+svar_data <- fred_md %>%
+  dplyr::select(date, MPS, LIP, LCPI, EBP, FEDFUNDS) %>%
+  mutate(MPS = scale(MPS)) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
 
-ds <- svar_data %>% filter(seq(ymd(19821001), ymd(20081201), by="month") %in% BS22$date)
-ds$mpr <- BS22$MPS_ORTH
-irf1 <- get_irf(datamat = ds, n_lags = 12, n_ahead = 48, id.type = "n_gaus", c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
 ```
 
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
 
-```{r bs22b, echo=FALSE}
-tibble(irf = pseries(irf1$irf, n_ahead) %>% unclass %>% .[,c(4,5),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Bauer and Swanson shocks (1)",
-          subtitle = "responses to 25bp shocks")
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
 
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
 
 ```
 
-```{r include=FALSE}
-ds$mpr <- BS22$MPS
-irf1 <- get_irf(datamat = ds, n_lags = 12, n_ahead = 48, id.type = "n_gaus", c(5,4))
-irf1$irf[,5,] <- irf1$irf[,5,,drop=FALSE]/irf1$irf[4,5,1]*0.25
-irf1$irf[,4,] <- irf1$irf[,4,,drop=FALSE]/max(irf1$irf[4,4,])*0.25
+```{r BS22b, echo=FALSE}
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("BS22 shock, sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 
+```{r BS22bb, include=FALSE}
+svar_data <- fred_md %>%
+  dplyr::select(date, MPS_ORTH, LIP, LCPI, EBP, FEDFUNDS) %>%
+  mutate(MPS_ORTH = scale(MPS_ORTH)) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
+  mutate_if(is.numeric, ~.x - mean(.x))
 
-```{r echo=FALSE}
-tibble(irf = pseries(irf1$irf, n_ahead) %>% unclass %>% .[,c(4,5),] %>% c,
-       variable = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR") %>% 
-         factor(levels = c("log IP", "log CPI", "EBP", "FEDFUNDS", "MPR")) %>% 
-         rep((n_ahead+1)*2),
-       shock = c("news", "surprise") %>% 
-         factor(levels=c("news", "surprise")) %>% 
-         rep(each=5) %>% 
-         rep(n_ahead+1),
-       months = rep(0:n_ahead, each = 10)) %>% 
-  ggplot(aes(x=months, y = irf)) +
-  geom_line() +
-  geom_hline(yintercept = 0, size = 0.15) +
-  facet_grid(variable ~ shock, scales = "free_y") +
-  facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-  scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
-  scale_y_continuous(n.breaks = 5) +
-  theme(legend.position = "none", 
-        axis.text.x = element_text(angle = 0),
-        axis.title.y = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.spacing = unit(.5, "lines"),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        strip.background = element_blank(),
-        axis.line = element_line(colour = "black")) +
-  ggtitle("VAR w/ Bauer and Swanson shocks (2)",
-          subtitle = "responses to 25bp shocks")
+irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
+                   p = 12,
+                   type = "both",
+                   id.type = "n_gaus",
+                   n_ahead = 48,
+                   zero_rest = c(1,5))
+irf_chol <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "chol",
+                    n_ahead = 48)
+irf_fevd <- get_irf(y = svar_data %>% dplyr::select(-date),
+                    p = 12,
+                    type = "both",
+                    id.type = "fevd_id",
+                    n_ahead = 48,
+                    zero_rest = 1)
+
+irf_fnl <- map2(.x = list(irf_chol$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,1,,drop=FALSE],
+                          irf_ng$irf[,5,,drop=FALSE],
+                          irf_fevd$irf[,1,,drop=FALSE]),
+                .y = c("surp", "surp", "news", "news"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, shapiro.test), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+```
+
+```{r}
+rbind(
+  stat = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$statistic),
+  pval = sapply(apply(irf_ng$resids**2, 2, Box.test, lag = 12), function(x) x$p.value)
+) %>% round(4) %>% DT::datatable(colnames = c("MPR", "LIP", "LCPI", "EBP", "FEDFUNDS"))
+
+```
+
+```{r BS22bbb, echo=FALSE}
+irf_fnl %>%
+  plot_irf(var_name = c("MPR", "LogIP", "LogCPI", "EBP", "FFR"),
+           shock_name = c("Surprise (Int-IV)", "Surprise (NG)", "News (NG)", "News (FEVD)")) +
+  ggtitle(paste("BS22 shock, sample:", 
+                svar_data %>% slice(1) %>% .$date, "--",
+                svar_data %>% slice(n()) %>% .$date, sep = " "),
+          subtitle = paste("LR-test stat", irf_ng$lratio$`Test statistic` %>% round(4),
+                           "w/ pval.", irf_ng$lratio$`p-value` %>% round(4), sep = " "))
 ```
 

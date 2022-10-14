@@ -1,0 +1,287 @@
+---
+title: "Check Residuals"
+author: "Bernd Funovits"
+output: 
+  html_document:
+    code_folding: show 
+    df_print: paged
+    toc: yes
+    toc_depth: '3'    
+    toc_float:
+      collapsed: no
+params:
+  JOBID: 2021020701
+  PATH: "../local_data/p_whf/ukko_bq_jobid_"
+  SAVE_AT_END: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pkgs = c("tidyverse", "svarmawhf")
+void = lapply(pkgs, library, character.only = TRUE)
+```
+
+# Conclusion
+
+In this file, we choose a model based on the ranks regarding AIC/BIC value, and the outcome of the Shapiro-Wilk/Jarque-Bera/Ljung-Box tests.
+
+# Data Wrangling
+
+The computing cluster output is in various different files and needs to be joined in one tibble.
+
+```{r}
+# All files that were generated on ukko
+vec_files = list.files(paste0(params$PATH, params$JOBID))
+vec_files = vec_files[grepl("arrayjob", vec_files)]
+SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
+SCRIPT_PARAMS$FILE_NAME_INPUT <-  "../local_data/data_xts.rds"
+DATASET = readRDS(SCRIPT_PARAMS$FILE_NAME_INPUT)
+DIM_OUT = SCRIPT_PARAMS$DIM_OUT
+
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "sgt", ...){
+  tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
+}
+
+dtable = function(x){
+  x %>% 
+    select(-shocks) %>% 
+    mutate_if(is.numeric, round, digits = 4) %>% 
+    DT::datatable(extensions = c('Buttons', 'Scroller'), 
+                  options = list(dom = 'Bflirtp', buttons = I('colvis'), 
+                                 deferRender = TRUE, scrollY = 350, scrollX = TRUE, scroller = TRUE),
+                  filter = list(position = 'top', clear = TRUE))
+}
+```
+
+
+```{r}
+if (file.exists(paste0(params$PATH, params$JOBID, "/",
+                       "e_residualcheck.rds"))){
+  tt_full = readRDS(paste0(params$PATH, params$JOBID, "/",
+                                  "e_residualcheck.rds")) 
+} else {
+  tibble_list = vector("list", length(vec_files))
+  
+  for (ix_file in seq_along(vec_files)){
+    file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
+                        vec_files[ix_file]))
+    
+    SCRIPT_PARAMS_this = file_this[[1]]$results_list$script_params
+    
+    IX_ARRAY_JOB_this = SCRIPT_PARAMS_this$IX_ARRAY_JOB
+    N_MODS_this = with(SCRIPT_PARAMS_this, N_MODS_PER_CORE * N_CORES)
+    
+    tibble_list[[ix_file]] =  
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>% 
+      unnest_wider(results_list) %>% 
+      select(nr, params_deep_final, value_final, input_integerparams) %>% 
+      mutate(n_params = map_int(params_deep_final, length)) %>% 
+      unnest_wider(input_integerparams) %>% 
+      mutate(punish_aic = n_params * 2/SCRIPT_PARAMS_this$N_OBS) %>% 
+      mutate(punish_bic = n_params * log(SCRIPT_PARAMS_this$N_OBS)/SCRIPT_PARAMS_this$N_OBS) %>% 
+      mutate(value_aic = value_final + punish_aic) %>% 
+      mutate(value_bic = value_final + punish_bic) %>% 
+      mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
+      mutate(res = map2(params_deep_final, tmpl, 
+                        ~get_residuals_once(params_deep = .x, 
+                                            tmpl = .y,
+                                            data_long = DATASET))) %>% 
+      mutate(B_mat = map2(params_deep_final, tmpl, 
+                        ~fill_tmpl_whf_rev(theta = .x, 
+                                            tmpl = .y)$B)) %>% 
+      mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>% 
+      mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
+      unnest_wider(cov_shocks) %>% 
+      mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
+  }
+  
+  tt_full = reduce(tibble_list, bind_rows)
+  
+  saveRDS(tt_full, 
+          file = paste0(params$PATH, params$JOBID, "/",
+                        "e_residualcheck.rds"))
+  
+}
+```
+
+# Add Ranks for AIC, BIC, MLE
+
+```{r}
+tt = tt_full %>% 
+  mutate(rk_aic = rank(value_aic),
+         rk_bic = rank(value_bic),
+         rk_mle = rank(value_final),
+         rk_cov = rank(cov_el_sum)) %>% 
+  arrange(value_aic) %>% 
+  mutate(p_plus_q = p+q,
+         n_unstable = kappa * DIM_OUT + k) %>% 
+  select(-params_deep_final, -kappa, -k, -n_params, -contains("punish"), -tmpl, -res, -B_mat) %>% 
+  select(nr, p_plus_q, p, q, n_unstable, rk_aic, rk_bic, rk_mle, everything())
+
+tt %>% dtable()
+```
+
+
+# Normality tests
+
+## Shapiro-Wilk Test
+
+For non-Gaussian shock densities, the $H_0$ should be rejected.
+
+```{r}
+THRESHOLD_SW = 0.05 
+
+# filter good models by flag == 0
+# H_0: Normality -> good models have small p-values
+tt = tt %>% 
+  mutate(sw = map(shocks, ~apply(.x, 2, FUN = function(x){shapiro.test(x)$p.value}))) %>% 
+  mutate(sw_flag = map_int(sw, ~sum(.x > THRESHOLD_SW))) %>% # one component may be Gaussian
+  mutate(sw_pval_sum = map_dbl(sw, sum)) %>% 
+  unnest_wider(sw, names_sep = "_pval") %>% 
+  arrange(desc(sw_pval_sum)) # bad models first
+
+tt %>% dtable()
+```
+
+
+
+```{r}
+tt %>% 
+  pull(sw_flag) %>% table()
+```
+
+```{r}
+tt %>% 
+  arrange(desc(sw_pval_sum)) %>% 
+  select(rk_aic, rk_mle, sw_flag, everything())
+```
+
+## Jarque-Bera Test
+
+For non-Gaussian densities, the Jarque-Bera tests rejects the $H_0$ of normality.
+
+```{r}
+THRESHOLD_JB = 0.05 
+
+# filter good moodels by flag == 0
+# H_0: Normality -> good models have small p-values
+tt = tt %>% 
+  mutate(jb = map(shocks, ~apply(.x, 2, FUN = function(x){tsoutliers::JarqueBera.test(x)[[1]]$p.value}))) %>% 
+  mutate(jb_flag = map_int(jb, ~sum(.x > THRESHOLD_JB))) %>% # one component may be Gaussian
+  mutate(jb_pval_sum = map_dbl(jb, sum)) %>% 
+  unnest_wider(jb, names_sep = "_pval") %>% 
+  arrange(desc(jb_pval_sum))
+
+tt %>% dtable()
+```
+
+```{r}
+tt %>% 
+  pull(jb_flag) %>% table()
+```
+
+```{r}
+tt %>% 
+  arrange(desc(jb_pval_sum)) %>% 
+  select(rk_aic, rk_mle, jb_pval_sum, jb_flag, everything())
+```
+
+## Summary for Normality tests
+
+```{r}
+tt = tt %>% mutate(normality_flag = sw_flag + jb_flag)
+tt %>% pull(normality_flag) %>% table()
+```
+
+# Ljung-Box tests: Independent residuals
+
+For residuals, absolute deviations of residuals, squared residuals
+
+```{r}
+THRESHOLD_LB = 0.1
+
+# filter good moodels by flag == 0
+# H_0: No autocorrelation of (transformation of) residuals
+# -> good models have high p-values
+tt = tt %>% 
+  mutate(lb = map(shocks, ~ apply(.x, 2, FUN = function(x){Box.test(x, lag = 8)$p.value }))) %>% 
+  mutate(lb_flag = map_lgl(lb, ~any(.x < THRESHOLD_LB))) %>% 
+  mutate(lb_pval_sum = map_dbl(lb, sum)) %>%
+  unnest_wider(lb, names_sep = "_pval") %>% 
+  
+  mutate(lb_abs = map(shocks, ~ apply(.x, 2, FUN = function(x){Box.test(abs(x), lag = 8)$p.value }))) %>% 
+  mutate(lb_abs_flag = map_lgl(lb_abs, ~any(.x < THRESHOLD_LB))) %>% 
+  mutate(lb_abs_pval_sum = map_dbl(lb_abs, sum)) %>%
+  unnest_wider(lb_abs, names_sep = "_pval") %>% 
+  
+  mutate(lb_sq = map(shocks, ~ apply(.x, 2, FUN = function(x){Box.test(x^2, lag = 8)$p.value }))) %>% 
+  mutate(lb_sq_flag = map_lgl(lb_sq, ~any(.x < THRESHOLD_LB))) %>% 
+  mutate(lb_sq_pval_sum = map_dbl(lb_sq, sum)) %>%
+  unnest_wider(lb_sq, names_sep = "_pval") %>% 
+
+  mutate(lb_all_pval_sum = lb_pval_sum + lb_abs_pval_sum + lb_sq_pval_sum) %>% 
+  arrange(lb_all_pval_sum)
+```
+
+## Summary
+
+```{r}
+tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
+tt %>%  pull(indep_flag) %>% table()
+```
+
+
+
+
+# Analysis
+
+```{r}
+tt %>% 
+  select(p_plus_q, p, q, n_unstable, 
+         contains("rk_"), normality_flag, lb_flag, indep_flag, 
+         contains("pval"), contains("sum"), contains("flag"), everything()) %>% 
+  dtable()
+
+```
+
+```{r}
+tt %>% 
+  filter(sw_flag == 0) %>% 
+  filter(lb_flag == 0) %>% 
+  filter(lb_abs_flag == 0) %>% 
+  filter(lb_sq_flag == 0) %>% 
+  filter(jb_flag == 0) %>% 
+  arrange(value_bic) %>% 
+  dtable()
+```
+
+```{r}
+tt %>% pull(normality_flag) %>% table()
+
+```
+
+```{r}
+tt %>% pull(indep_flag) %>% table()
+```
+
+```{r}
+tt = tt %>% mutate(norm_indep_flag = normality_flag + indep_flag)
+tt %>% pull(norm_indep_flag) %>% table()
+```
+
+```{r}
+tt = tt %>% 
+  left_join(tt_full %>% select(nr, params_deep_final, tmpl, kappa, k),
+            by = "nr")
+
+if(params$SAVE_AT_END){
+  saveRDS(tt,
+          file = paste0(params$PATH, params$JOBID, "/",
+                        "e_residualcheck_end.rds"))
+}
+
+```
+

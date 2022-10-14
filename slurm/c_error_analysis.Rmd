@@ -1,0 +1,553 @@
+---
+title: "Error Analysis"
+author: "Bernd Funovits"
+output: 
+  html_document:
+    code_folding: show  
+    df_print: paged
+    toc: yes
+    toc_depth: '3'    
+    toc_float:
+      collapsed: no 
+    number_sections: true
+params:
+  JOBID: 2021020701
+  PATH: "../local_data/p_whf/ukko_bq_jobid_"
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pkgs = c("tidyverse")
+select <- dplyr::select
+void = lapply(pkgs, library, character.only = TRUE)
+```
+
+# Overview and Conclusion
+
+Some errors are thrown for models with high MA order. 
+There are strategies to make this errors go away.
+However, there are only a few errors and they happen under understandable circumstances which is why we do not investigate further and proceed with the model analysis.
+
+Sources of errors are:
+
+* In the derivative-based BFGS method: It happens that the next step "overshoots" in an area of instability (unstable AR roots, roots inside the unit circle for $p(z)$ or $f(1/z)$). In this case, the BFGS method throws an errors.
+* Likewise, the parameter optimization in the SGT densities sometimes results in values such that mean or variance do not exists. This entails NA values and eventually throws an error.
+* NM is known to not work very in problems with high dimension. It needs a large number of iterations and even then fails to converge (even though the optimizing value and the optimizing argument hardly move).
+
+# Data Wrangling
+
+The output obtained from the computing cluster is in various different files and needs to be joined in one tibble.
+
+```{r}
+# All files that were generated on ukko
+vec_files = list.files(paste0(params$PATH, params$JOBID))
+vec_files = vec_files[grepl("arrayjob", vec_files)]
+```
+
+## Investigate Structure of Output
+
+```{r}
+f1 = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))
+
+f1 %>% str(1)
+f1[[1]] %>% str(1)
+f1[[1]]$results_list %>% str(1)
+f1[[1]]$results_list %>% str(2)
+f1[[1]]$results_list$script_params
+f1[[1]]$results_list$input_integerparams
+f1[[1]]$results_list$initial
+f1[[1]]$results_list$gaussian %>% str(1)
+f1[[1]]$results_list$gaussian[[1]]
+f1[[1]]$results_list$ic
+f1[[1]]$results_list$laplace %>% str(1)
+f1[[1]]$results_list$laplace[[1]] %>% str(1)
+f1[[1]]$results_list$laplace[[1]] %>% str(2)
+f1[[1]]$results_list$laplace[[2]]$NM
+f1[[1]]$results_list$laplace[[2]]$BFGS
+f1[[1]]$results_list$sgt[[2]]$BFGS
+f1[[1]]$value_final
+```
+
+## Create Tibble
+
+```{r}
+
+if (file.exists(paste0(params$PATH, params$JOBID, "/",
+                       "c_error_analysis.rds"))){
+  tt_full = readRDS(paste0(params$PATH, params$JOBID, "/",
+                                  "c_error_analysis.rds")) 
+} else {
+  tibble_list = vector("list", length(vec_files))
+  
+  for (ix_file in seq_along(vec_files)){
+    
+    file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
+                        vec_files[ix_file]))
+    
+    # file_this = readRDS(paste0("local_data/p_whf/ukko_bq_jobid_", params$JOBID, "/",
+    #                     vec_files[ix_file]))
+    
+    SCRIPT_PARAMS_this = file_this[[1]]$results_list$script_params
+    
+    IX_ARRAY_JOB_this = SCRIPT_PARAMS_this$IX_ARRAY_JOB
+    N_MODS_this = with(SCRIPT_PARAMS_this, N_MODS_PER_CORE * N_CORES)
+    
+    hlp_init = 
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>%
+      unnest_wider(results_list) %>%
+      select(-params_deep_final, -value_final, -script_params) %>% 
+      pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+      filter(est == "initial") %>% 
+      unnest_wider(v, names_sep = "_") %>% 
+      mutate(ix = 1) %>% 
+      rename(theta = v_theta,
+             value_laplace = v_value_laplace)
+    
+    hlp_gaussian_BFGS = 
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>%
+      unnest_wider(results_list) %>%
+      select(-params_deep_final, -value_final, -script_params) %>% 
+      pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+      filter(est == "gaussian") %>% 
+      mutate(est = "gaussian_BFGS") %>% 
+      unnest_longer(v,indices_to = "ix") %>% 
+      mutate(ix = ix*2) %>% 
+      unnest_wider(v, names_sep = "_") %>% 
+      select(-v_NM) %>% 
+      unnest_wider(v_BFGS, names_sep = "_") %>% 
+      select(-contains("v_BFGS_msg")) %>% 
+      rename(convergence = v_BFGS_convergence,
+             theta = v_BFGS_theta,
+             value_laplace = v_BFGS_value_laplace,
+             value_gaussian = v_BFGS_value,
+             duration = v_BFGS_duration)
+    
+    hlp_gaussian_NM = 
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>%
+      unnest_wider(results_list) %>%
+      select(-params_deep_final, -value_final, -script_params) %>% 
+      pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+      filter(est == "gaussian") %>% 
+      mutate(est = "gaussian_NM") %>% 
+      unnest_longer(v,indices_to = "ix") %>% 
+      mutate(ix = ix*2+1) %>% 
+      unnest_wider(v, names_sep = "_") %>% 
+      select(-v_BFGS) %>% 
+      unnest_wider(v_NM, names_sep = "_") %>% 
+      rename(convergence = v_NM_convergence,
+             theta = v_NM_theta,
+             value_laplace = v_NM_value_laplace,
+             value_gaussian = v_NM_value,
+             duration = v_NM_duration)
+    
+    hlp_ic = 
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>%
+      unnest_wider(results_list) %>%
+      select(-params_deep_final, -value_final, -script_params) %>% 
+      pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+      filter(est == "ic") %>% 
+      unnest_wider(v, names_sep = "_") %>% 
+      mutate(ix = 2 + 2*length(file_this[[1]]$results_list$gaussian)) %>% 
+      rename(theta = v_theta,
+             value_laplace = v_value_laplace)
+    
+    hlp_laplace_BFGS = 
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>%
+      unnest_wider(results_list) %>%
+      select(-params_deep_final, -value_final, -script_params) %>% 
+      pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+      filter(est == "laplace") %>% 
+      mutate(est = "laplace_BFGS") %>% 
+      unnest_longer(v,indices_to = "ix") %>% 
+      mutate(ix = 1 + ix*2+2*length(file_this[[1]]$results_list$gaussian)) %>% 
+      unnest_wider(v, names_sep = "_") %>% 
+      select(-v_NM) %>% 
+      unnest_wider(v_BFGS, names_sep = "_") %>% 
+      select(-contains("v_BFGS_msg")) %>% 
+      rename(convergence = v_BFGS_convergence,
+             theta = v_BFGS_theta,
+             value_laplace = v_BFGS_value_laplace,
+             duration = v_BFGS_duration) %>% 
+      select(-v_BFGS_value)
+    
+    hlp_laplace_NM = 
+      enframe(file_this) %>% 
+      rename(nr = name) %>% 
+      mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+      unnest_wider(value) %>%
+      unnest_wider(results_list) %>%
+      select(-params_deep_final, -value_final, -script_params) %>% 
+      pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+      filter(est == "laplace") %>% 
+      mutate(est = "laplace_NM") %>% 
+      unnest_longer(v,indices_to = "ix") %>% 
+      mutate(ix = ix*2 + 2 + 2*length(file_this[[1]]$results_list$gaussian)) %>% 
+      unnest_wider(v, names_sep = "_") %>% 
+      select(-v_BFGS) %>% 
+      unnest_wider(v_NM, names_sep = "_") %>% 
+      rename(convergence = v_NM_convergence,
+             theta = v_NM_theta,
+             value_laplace = v_NM_value_laplace,
+             duration = v_NM_duration) %>% 
+      select(-v_NM_value)
+    
+    hlp_sgt_BFGS =
+      enframe(file_this) %>% 
+        rename(nr = name) %>% 
+        mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+        unnest_wider(value) %>%
+        unnest_wider(results_list) %>%
+        select(-params_deep_final, -value_final, -script_params) %>% 
+        pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+        filter(est == "sgt") %>% 
+        mutate(est = "sgt_BFGS") %>% 
+        unnest_longer(v,indices_to = "ix") %>% 
+        mutate(ix = 1+ix*2+2*(length(file_this[[1]]$results_list$gaussian) + length(file_this[[1]]$results_list$laplace))) %>% 
+        unnest_wider(v, names_sep = "_") %>% 
+        select(-v_NM) %>% 
+        unnest_wider(v_BFGS, names_sep = "_") %>% 
+      select(-contains("v_BFGS_msg")) %>% 
+        rename(convergence = v_BFGS_convergence,
+               theta = v_BFGS_theta,
+               value_laplace = v_BFGS_value_laplace,
+               duration = v_BFGS_duration,
+               value_sgt = v_BFGS_value)
+    
+    hlp_sgt_NM =
+      enframe(file_this) %>% 
+        rename(nr = name) %>% 
+        mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
+        unnest_wider(value) %>%
+        unnest_wider(results_list) %>%
+        select(-params_deep_final, -value_final, -script_params) %>% 
+        pivot_longer(c(initial, gaussian, ic, laplace, sgt), names_to = "est", values_to = "v") %>% 
+        filter(est == "sgt") %>% 
+        mutate(est = "sgt_NM") %>% 
+        unnest_longer(v,indices_to = "ix") %>% 
+        mutate(ix = 2+ix*2+2*(length(file_this[[1]]$results_list$gaussian) + length(file_this[[1]]$results_list$laplace))) %>% 
+        unnest_wider(v, names_sep = "_") %>% 
+        select(-v_BFGS) %>% 
+        unnest_wider(v_NM, names_sep = "_") %>% 
+        rename(convergence = v_NM_convergence,
+               theta = v_NM_theta,
+               value_laplace = v_NM_value_laplace,
+               duration = v_NM_duration,
+               value_sgt = v_NM_value) 
+    
+      tibble_list[[ix_file]] = 
+        bind_rows(hlp_init,
+                  hlp_gaussian_BFGS,
+                  hlp_gaussian_NM,
+                  hlp_ic,
+                  hlp_laplace_BFGS,
+                  hlp_laplace_NM,
+                  hlp_sgt_BFGS,
+                  hlp_sgt_NM) %>% 
+        group_by(nr) %>% 
+        arrange(ix, .by_group = TRUE)
+    
+  }
+  
+  tt_full = reduce(tibble_list, bind_rows) 
+  
+  saveRDS(tt_full, 
+          file = paste0(params$PATH, params$JOBID, "/",
+                        "c_error_analysis.rds"))
+  
+}
+
+
+```
+
+# Error Analysis
+
+We restart for the Gaussian, Laplace, and SGT distribution the likelihood optimization a couple of times, the BFGS method followed immediately by the Nelder-Mead (NM) method, updating the best obtained value only if there is an improvement for the respective distribution.
+Restarting from previously obtained optima has turned out to be a successful approach.
+
+The convergence codes of the algorithm have the following meaning:
+
+* $0$: success
+* $1$: reached maximal number of iterations (this happens more often for Nelder-Mead than for BFGS)
+* $2$: user-defined error code. It catches errors thrown by **optim()** which happen, e.g., when BFGS overshoots such that the determinantal roots are on the "wrong" side of the unit circle (compare below).
+* $10$: Degenerate NM simplex and therefore happens only for NM. 
+
+The number of restarts and maximal number of iterations for each distribution can be inferred from the variable **script_params**. 
+These numbers are different for initial estimates (Gaussian in contrast to Laplace and SGT) and also for BFGS and NM (default in R is $100$ and $500$, I use significantly higher values).
+BFGS is in general more successful but sometimes runs into errors since it is derivative based and therefore sometimes shoots into the area of the parameter space where the determinantal root location is "wrong".
+NM needs a high number of iterations and is time consuming. 
+For this reason, the number of maximal iterations is reached quite often for NM.
+
+```{r}
+tt_full %>% 
+  pull(convergence) %>% table()
+```
+
+## Error code 10: Degenerate NM Simplex
+
+All optimizations with convergence code 10:
+
+```{r}
+tt_full %>% 
+  filter(convergence == 10) %>% 
+  ungroup() %>% 
+  unnest_wider(input_integerparams)
+```
+
+All errors occur when MA orders are relatively high except for the $(2,2)$ model.
+Moreover, this error only happens for one optimization out of many restarts.
+
+```{r}
+tt_full %>% 
+  filter(convergence == 10) %>% 
+  slice(1, .preserve = 4) %>% 
+  ungroup() %>% 
+  unnest_wider(input_integerparams) %>% 
+  arrange(desc(p), desc(q))
+```
+
+## Error code 2: Overshooting 
+
+Out of `r nrow(tt_full)`, there are `r nrow(filter(tt_full, convergence == 2))` errors of this kind.
+
+```{r}
+tt_full %>% 
+  ungroup() %>% 
+  filter(convergence == 2)
+```
+Obviously, all these errors occur for the BFGS method and there are no errors of this kind for the NM method:
+
+```{r}
+tt_full %>% 
+  ungroup() %>% 
+  filter(convergence == 2) %>% 
+  mutate(count_NM = grepl("NM", est)) %>% 
+  summarise(sum(count_NM))
+```
+
+The distribution of the errors across distributions is as follows:
+
+```{r}
+tt_full %>% 
+  ungroup() %>% 
+  filter(convergence == 2) %>% 
+  mutate(count_gaussian = grepl("gaussian", est),
+         count_laplace = grepl("laplace", est),
+         count_sgt = grepl("sgt", est)) %>% 
+  summarise(across(contains("count"), ~sum(.x)))
+```
+
+Importantly, the errors do not occur in all BFGS optimizations.
+The models for which an error is thrown have high MA orders (and also AR orders) in common.
+
+```{r}
+tt_full %>% 
+  group_by(nr, input_integerparams) %>% 
+  filter(convergence == 2) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  unnest_wider(input_integerparams) %>% 
+  mutate(p_plus_q = p+q) %>% 
+  select(-kappa, -k)
+```
+
+Here is the distribution of number of errors that occurred for BFGS optimizations.
+
+```{r}
+tt_full %>% 
+  group_by(nr, input_integerparams) %>% 
+  filter(convergence == 2) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  unnest_wider(input_integerparams) %>% 
+  pull(n) %>% table()
+```
+
+Are there any SGT optimizations for which BFGS throws an error?
+
+```{r}
+(n_sgt_bfgs_errors = tt_full %>% 
+   group_by(nr, input_integerparams) %>%
+   filter(grepl("sgt", est)) %>% 
+   filter(convergence == 52) %>% 
+   nrow())
+```
+
+If yes, for which ones?
+
+```{r}
+if (n_sgt_bfgs_errors > 0){
+  tt_full %>% 
+    group_by(nr, input_integerparams) %>%
+    filter(grepl("sgt", est)) %>% 
+    filter(convergence == 2) %>% 
+    count() %>% 
+    arrange(desc(n)) %>% 
+    unnest_wider(input_integerparams) %>% 
+    arrange(desc(q), desc(p))
+}
+```
+
+Errors for Laplace BFGS optimization:
+
+```{r}
+tt_full %>% 
+  group_by(nr, input_integerparams) %>%
+  filter(grepl("laplace", est)) %>% 
+  filter(convergence == 2) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  unnest_wider(input_integerparams) %>% 
+  arrange(desc(q), desc(p))
+```
+
+
+## Error Code 1: Maximal number of iterations
+
+This happens mainly for the NM method.
+
+```{r}
+tt_full %>% 
+  group_by(nr, input_integerparams) %>% 
+  filter(convergence == 1) %>% 
+  mutate(count_NM = grepl("_NM", est)) %>% 
+  ungroup() %>% 
+  summarise(mean(count_NM))
+```
+The following shows then number of errors for each restart and each distribution.
+The first ones correspond to the Gaussian density, the last ones to the SGT family.
+
+```{r}
+tt_full %>% 
+  group_by(nr, input_integerparams) %>% 
+  filter(convergence == 1) %>% 
+  filter(grepl("_BFGS", est)) %>% 
+  unnest_wider(input_integerparams) %>% 
+  mutate(p_plus_q = p + q) %>%
+  arrange(desc(p_plus_q)) %>% 
+  pull(ix) %>% table()
+```
+
+The models for which the last Laplace restart throws an error are the following:
+
+```{r}
+tt_full %>% 
+  group_by(nr, input_integerparams) %>% 
+  filter(convergence == 1) %>% 
+  filter(grepl("_BFGS", est)) %>% 
+  filter(ix == 1+length(f1[[1]]$results_list$laplace)*2+2*(length(f1[[1]]$results_list$gaussian))) %>% 
+  unnest_wider(input_integerparams) %>% 
+  ungroup() %>% 
+  mutate(p_plus_q = p + q) %>% 
+  select(nr, p_plus_q, everything()) %>% 
+  arrange(desc(p_plus_q), desc(q), desc(p))
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+# Discard Models without valid SGT optimization
+
+Check if there is a model without valid SGT optimization
+
+```{r}
+tt_full %>% 
+  filter(grepl("sgt", est)) %>% 
+  filter(is.finite(value_sgt)) %>% 
+  slice(length(f1[[1]]$results_list$sgt), .preserve = TRUE)
+  
+```
+Check the non-finite values:
+
+```{r}
+tt_full %>% 
+  filter(grepl("sgt_BFGS", est)) %>% 
+  filter(is.na(value_sgt))
+  filter(!is.finite(value_sgt)) %>% 
+  slice(length(f1[[1]]$results_list$sgt), .preserve = TRUE)
+  
+```
+
+<!--
+```{r}
+knitr::knit_exit()
+```
+
+```{r}
+tt_full %>% 
+  group_by(nr, input_integerparams) %>% 
+  filter(convergence == 1) %>% 
+  filter(grepl("_BFGS", est)) %>% 
+  filter(ix == 17) %>% 
+  unnest_wider(input_integerparams) %>% 
+  ungroup() %>% 
+  arrange(desc(q), desc(p)) %>% 
+  pull(nr) -> ix_1_bfgs
+saveRDS(ix_1_bfgs,
+        file = paste0(params$PATH, params$JOBID, "/",
+                      "c_error_analysis_bad_nr.rds"))
+
+```
+
+Interestingly, the NM optimization after the last BFGS optimization does not improve the value obtained from the last BFGS optimization!
+This is also evidence for the fact how badly NM performs in higher dimensions. 
+
+```{r}
+tt_full %>% 
+  filter(nr %in% ix_1_bfgs) %>% 
+  filter(ix %in% c(17,18)) %>% 
+  unnest_wider(input_integerparams) %>% 
+  ungroup() %>% 
+  arrange(desc(q), desc(p))
+```
+
+# Investigate Changes in Laplace Value
+
+```{r}
+tt_full %>% 
+  select(nr, input_integerparams, value_laplace, ix) %>% 
+  mutate(val_lag = lag(value_laplace)) %>% 
+  mutate(val_diff = value_laplace - val_lag)
+```
+
+
+```{r}
+tt_full %>% 
+  select(nr, input_integerparams, est, convergence, value_laplace, ix) %>% 
+  mutate(val_lag = lag(value_laplace)) %>% 
+  mutate(val_diff = value_laplace - val_lag) %>% 
+  filter(!is.na(val_diff), val_diff < 0)
+```
+
+NM also sometimes improves the value!
+
+```{r}
+tt_full %>% 
+  select(nr, input_integerparams, est, convergence, value_laplace, ix) %>% 
+  mutate(val_lag = lag(value_laplace)) %>% 
+  mutate(val_diff = value_laplace - val_lag) %>% 
+  filter(!is.na(val_diff), val_diff < 0) %>% 
+  filter(grepl("NM", est))
+```
+
+-->
+
+
+
