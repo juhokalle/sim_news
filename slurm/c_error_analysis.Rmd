@@ -11,8 +11,8 @@ output:
       collapsed: no 
     number_sections: true
 params:
-  JOBID: 2021020701
-  PATH: "../local_data/p_whf/ukko_bq_jobid_"
+  JOBID: 20221014
+  PATH: "local_data/jobid_"
 editor_options: 
   chunk_output_type: inline
 ---

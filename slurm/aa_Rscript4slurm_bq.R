@@ -17,10 +17,10 @@ params$IX_ARRAY_JOB = as.integer(args[2]) # index of array-job. Number of array-
 params$SLURM_JOB_ID = as.integer(args[3])
 params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
-params$FILE_NAME_INPUT = "~/sim_news/local_data/svarma_data.rds"
+params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data.rds"
 
-params$AR_ORDER_MAX = 12
-params$MA_ORDER_MAX = 4
+params$AR_ORDER_MAX = 2
+params$MA_ORDER_MAX = 2
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
@@ -40,7 +40,7 @@ params$USE_NM_SGT = TRUE
 params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 
-params$PATH_RESULTS_HELPER = "~/sim_news/local_data/"
+params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
 
 cat("\n--------------------------------------------------\n")
