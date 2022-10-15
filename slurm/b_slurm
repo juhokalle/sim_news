@@ -6,7 +6,7 @@
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-49
+#SBATCH --array=1-59
 #SBATCH -c 1
 
 N_MODS_PER_CORE=10
