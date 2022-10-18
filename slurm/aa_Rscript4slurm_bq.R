@@ -19,8 +19,8 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data.rds"
 
-params$AR_ORDER_MAX = 2
-params$MA_ORDER_MAX = 2
+params$AR_ORDER_MAX = 12
+params$MA_ORDER_MAX = 4
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE

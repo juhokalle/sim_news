@@ -179,10 +179,9 @@ fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
 fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds"), dplyr::select(bs_data, date, GS2)) %>% 
   reduce(left_join, by = "date")
 
-svarma_data <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>% 
+svarma_data <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>% 
   filter(date>=ymd(19821001), date<ymd(20080101)) %>% 
-  mutate_if(is.numeric, ~residuals(lm(.x~1+I(1:n())))) %>% 
-  #mutate_if(is.numeric, ~.x-mean(.x)) %>%
+  mutate_if(is.numeric, ~residuals(lm(.x~1+I(1:n())))) %>%
   dplyr::select(-date)
 saveRDS(svarma_data, "local_data/svarma_data.rds")
   
