@@ -6,9 +6,9 @@ params = list()
 .libPaths(c(.libPaths(), "/proj/juhokois/R/"))
 
 # Parameters from Rmarkdown
-params$USE_PARALLEL = FALSE
+params$USE_PARALLEL = TRUE
 if (params$USE_PARALLEL){
-  params$N_CORES = as.integer(Sys.getenv("SRUN_CPUS_PER_TASK"))
+  params$N_CORES = as.integer(args[6])
 } else {
   params$N_CORES = 1
 } 
