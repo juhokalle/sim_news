@@ -11,7 +11,7 @@ output:
       collapsed: no 
     number_sections: true
 params:
-  JOBID: 20221014
+  JOBID: 202210
   PATH: "local_data/jobid_"
 editor_options: 
   chunk_output_type: inline

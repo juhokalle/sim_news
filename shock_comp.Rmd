@@ -169,7 +169,8 @@ fred_md <- fredmd("http://files.stlouisfed.org/files/htdocs/fred-md/monthly/curr
   as_tibble() %>% 
   mutate(LIP = 100*log(INDPRO),
          LCPI = 100*log(CPIAUCSL),
-         DLCPI = c(rep(NA, 12), diff(LCPI, 12)),
+         PI = c(rep(NA, 12), diff(LCPI, 12)),
+         DLCPI = c(NA, diff(LCPI)),
          DLIP = c(NA, diff(LIP))) %>% 
   filter(date>ymd(19721201))
 
@@ -179,9 +180,10 @@ fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
 fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds"), dplyr::select(bs_data, date, GS2)) %>% 
   reduce(left_join, by = "date")
 
-svarma_data <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>% 
-  filter(date<ymd(20080101)) %>% 
-  mutate_if(is.numeric, ~residuals(lm(.x~1+I(1:n())))) %>%
+svarma_data <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
+  filter(date<ymd(20080101)) %>%
+  mutate_at(vars(DLIP), ~.x - mean(.x)) %>% 
+  mutate_at(vars(DLCPI, EBP, FEDFUNDS), ~residuals(lm(.x~1+I(1:n())))) %>% 
   dplyr::select(-date)
 saveRDS(svarma_data, "local_data/svarma_data.rds")
   
