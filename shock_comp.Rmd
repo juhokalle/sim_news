@@ -181,7 +181,7 @@ fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds"), dplyr::select(bs_d
   reduce(left_join, by = "date")
 
 svarma_data <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
-  filter(date<ymd(20080101)) %>%
+  filter(date >= ymd(19821001), date<ymd(20080101)) %>%
   mutate_at(vars(DLIP), ~.x - mean(.x)) %>% 
   mutate_at(vars(DLCPI, EBP, FEDFUNDS), ~residuals(lm(.x~1+I(1:n())))) %>% 
   dplyr::select(-date)
