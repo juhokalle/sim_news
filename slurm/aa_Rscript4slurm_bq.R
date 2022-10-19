@@ -8,7 +8,7 @@ params = list()
 # Parameters from Rmarkdown
 params$USE_PARALLEL = FALSE
 if (params$USE_PARALLEL){
-  params$N_CORES = as.integer(Sys.getenv("SLURM_CPUS_PER_TASK"))
+  params$N_CORES = as.integer(Sys.getenv("SRUN_CPUS_PER_TASK"))
 } else {
   params$N_CORES = 1
 } 
@@ -26,13 +26,13 @@ params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
 params$MAXIT_BFGS_GAUSS = 80
-params$MAXIT_NM_GAUSS = 1000
+params$MAXIT_NM_GAUSS = 3000
 
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 2000 # default for NM is 500
+params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
 
 params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
