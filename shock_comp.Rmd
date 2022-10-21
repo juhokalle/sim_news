@@ -12,6 +12,26 @@ knitr::opts_chunk$set(echo = TRUE)
 liblist <- c("readr", "tidyverse", "lubridate", "fbi", "readxl", "vars", "svars", "svarmawhf", "lemon") 
 void <- lapply(liblist, library, character.only = TRUE)
 
+function(resids, lags.pt, p_plus_q) 
+{
+    nobs <- nrow(resids)
+    nvar <- ncol(resids)
+    C0 <- crossprod(resids)/nobs
+    C0inv <- solve(C0)
+    tracesum <- rep(NA, lags.pt)
+    for (i in 1:lags.pt) {
+        Ut.minus.i <- resids[-(nobs-c(1:i)), ]
+        Ut <- resids[-c(1:i), ]
+        Ci <- crossprod(Ut, Ut.minus.i)/nobs
+        tracesum[i] <- sum(diag(t(Ci) %*% C0inv %*% Ci %*% C0inv))
+    }
+    vec.adj <- nobs - (1:lags.pt)
+    Qh.star <- nobs^2 * sum(tracesum/vec.adj)
+    degf <- nvar^2*(lags.pt - p_plus_q)
+    PVAL <- pchisq(Qh.star, df = PARAMETER, lower.tail = TRUE)
+    return(result)
+}
+
 rotmat <- function(x, n){
   
   rot_ix <- combn(n,2)
@@ -183,7 +203,7 @@ fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds"), dplyr::select(bs_d
 svarma_data <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
   filter(date >= ymd(19821001), date<ymd(20080101)) %>%
   mutate_at(vars(DLIP), ~.x - mean(.x)) %>% 
-  mutate_at(vars(DLCPI, EBP, FEDFUNDS), ~residuals(lm(.x~1+I(1:n())))) %>% 
+  mutate_at(vars(DLCPI, EBP, FEDFUNDS), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
   dplyr::select(-date)
 saveRDS(svarma_data, "local_data/svarma_data.rds")
   
