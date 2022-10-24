@@ -12,24 +12,26 @@ knitr::opts_chunk$set(echo = TRUE)
 liblist <- c("readr", "tidyverse", "lubridate", "fbi", "readxl", "vars", "svars", "svarmawhf", "lemon") 
 void <- lapply(liblist, library, character.only = TRUE)
 
-function(resids, lags.pt, p_plus_q) 
-{
-    nobs <- nrow(resids)
-    nvar <- ncol(resids)
-    C0 <- crossprod(resids)/nobs
-    C0inv <- solve(C0)
-    tracesum <- rep(NA, lags.pt)
-    for (i in 1:lags.pt) {
-        Ut.minus.i <- resids[-(nobs-c(1:i)), ]
-        Ut <- resids[-c(1:i), ]
-        Ci <- crossprod(Ut, Ut.minus.i)/nobs
-        tracesum[i] <- sum(diag(t(Ci) %*% C0inv %*% Ci %*% C0inv))
-    }
-    vec.adj <- nobs - (1:lags.pt)
-    Qh.star <- nobs^2 * sum(tracesum/vec.adj)
-    degf <- nvar^2*(lags.pt - p_plus_q)
-    PVAL <- pchisq(Qh.star, df = PARAMETER, lower.tail = TRUE)
-    return(result)
+pt.test <- function(resids, lags.pt, p_plus_q){
+    
+  nobs <- nrow(resids)
+  nvar <- ncol(resids)
+  C0 <- crossprod(resids)/nobs
+  C0inv <- solve(C0)
+  tracesum <- rep(NA, lags.pt)
+  for (i in 1:lags.pt) {
+      Ut.minus.i <- resids[-(nobs-c(1:i)), ]
+      Ut <- resids[-c(1:i), ]
+      Ci <- crossprod(Ut, Ut.minus.i)/nobs
+      tracesum[i] <- sum(diag(t(Ci) %*% C0inv %*% Ci %*% C0inv))
+  }
+  vec.adj <- nobs - (1:lags.pt)
+  Qh <- nobs * sum(tracesum)
+  Qh.star <- nobs^2 * sum(tracesum/vec.adj)
+  degf <- nvar^2*(lags.pt - p_plus_q)
+  PVAL <- 1 - pchisq(Qh.star, df = degf)
+  return(list(statistic = Qh.star,
+              p.val = PVAL))
 }
 
 rotmat <- function(x, n){

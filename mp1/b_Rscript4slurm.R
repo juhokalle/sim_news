@@ -127,6 +127,5 @@ if (!dir.exists(new_dir_path)){
   dir.create(new_dir_path)
 }
 
-# save for further analysis
-saveRDS(mods_parallel_list, paste0(new_dir_path, "/arrayjob_", params$IX_ARRAY_JOB,".rds"), version = 3)
+saveRDS(mods_parallel_list, paste0(new_dir_path, "/arrayjob_", if(params$IX_ARRAY_JOB<10) "0", params$IX_ARRAY_JOB,".rds"), version = 3)
 
