@@ -17,59 +17,37 @@ fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
 
 data_list <- list()
 # SHORT & STRONG PERSISTENCE
-data_list[[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19821001), date<ymd(20080101)) %>%
-  mutate_at(vars(LIP, LCPI, FEDFUNDS), ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
-  mutate_at(vars(EBP), ~ .x - mean(.x)) %>% 
-  dplyr::select(-date)
+data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
+  filter(date >= ymd(19900101), date<ymd(20090101)) %>%
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 # SHORT & MEDIUM PERSISTENCE
-data_list[[2]] <- fred_md %>% dplyr::select(date, LIP, PI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19821001), date<ymd(20080101)) %>%
-  mutate_at(vars(LIP, FEDFUNDS), ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
-  mutate_at(vars(PI, EBP), ~ .x - mean(.x)) %>% 
-  dplyr::select(-date)
+data_list [[2]] <- fred_md %>% dplyr::select(date, LIP, PI, EBP, FEDFUNDS) %>%
+  filter(date >= ymd(19900101), date<ymd(20090101)) %>%
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 # SHORT & LOW PERSISTENCE
-data_list[[3]] <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19821001), date<ymd(20080101)) %>%
-  mutate_at(vars(DLIP, DLCPI, EBP), ~.x - mean(.x)) %>% 
-  mutate_at(vars(FEDFUNDS), ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>%
-  dplyr::select(-date)
+data_list [[3]] <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
+  filter(date >= ymd(19900101), date<ymd(20090101)) %>%
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 # LONG & STRONG PERSISTENCE
-data_list[[4]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date<ymd(20080101)) %>%
+data_list [[4]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
+  filter(date >= ymd(19900101), date<ymd(20150101)) %>%
   dplyr::select(-date) %>% 
   mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 # LONG & MEDIUM PERSISTENCE
-data_list[[5]] <- fred_md %>% dplyr::select(date, LIP, PI, EBP, FEDFUNDS) %>%
-  filter(date<ymd(20080101)) %>%
+data_list [[5]] <- fred_md %>% dplyr::select(date, LIP, PI, EBP, FEDFUNDS) %>%
+  filter(date >= ymd(19900101), date<ymd(20150101)) %>%
   dplyr::select(-date) %>% 
   mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 # LONG & LOW PERSISTENCE
-data_list[[6]] <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
-  filter(date<ymd(20080101)) %>%
-  mutate_at(vars(DLIP), ~.x - mean(.x)) %>%
-  mutate_at(vars(DLCPI, EBP, FEDFUNDS), ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
-  dplyr::select(-date)
-# SHORTEST & STRONG PERSISTENCE
-data_list [[7]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20080101)) %>%
+data_list [[6]] <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
+  filter(date >= ymd(19900101), date<ymd(20150101)) %>%
   dplyr::select(-date) %>% 
-  mutate_at(vars(LIP, LCPI, FEDFUNDS),~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
-  mutate_at(vars(EBP), ~ .x - mean(.x))
-# SHORTEST & MEDIUM PERSISTENCE
-data_list [[8]] <- fred_md %>% dplyr::select(date, LIP, PI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20080101)) %>%
-  dplyr::select(-date) %>% 
-  mutate_at(vars(LIP, PI, FEDFUNDS), ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
-  mutate_at(vars(EBP), ~ .x - mean(.x))
-# SHORTEST & LOW PERSISTENCE
-data_list [[9]] <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20080101)) %>%
-  dplyr::select(-date) %>% 
-  mutate_at(vars(DLCPI, FEDFUNDS), ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
-  mutate_at(vars(DLIP, EBP), ~ .x - mean(.x))
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 
 data_list <- tibble(data_list,
-                    expand_grid(length= c("med", "long", "short"),
+                    expand_grid(length= c("short", "long"),
                                 prst = c("str", "med", "low")))
 saveRDS(data_list, "local_data/svarma_data_list.rds")

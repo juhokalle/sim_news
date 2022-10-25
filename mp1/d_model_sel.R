@@ -2,17 +2,21 @@ pkgs = c("tidyverse", "svarmawhf")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221021")
+               JOBID = "20221024")
 
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
 SCRIPT_PARAMS$FILE_NAME_INPUT <-  "local_data/svarma_data.rds"
-DATASET = readRDS(SCRIPT_PARAMS$FILE_NAME_INPUT)
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
-
+total_data <- readRDS("local_data/total_data.rds")
+  
 pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "sgt", ...){
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
+}
+
+pmap_get_residuals_once = function(params_deep_final, tmpl, data_list, ...){
+  get_residuals_once(params_deep = params_deep_final, tmpl = tmpl, data_long = data_list)
 }
 
 tibble_list = vector("list", length(vec_files))
@@ -35,15 +39,13 @@ for (ix_file in seq_along(vec_files)){
     select(nr, params_deep_final, value_final, input_integerparams) %>% 
     mutate(n_params = map_int(params_deep_final, length)) %>% 
     unnest_wider(input_integerparams) %>% 
-    mutate(punish_aic = n_params * 2/SCRIPT_PARAMS_this$N_OBS) %>% 
-    mutate(punish_bic = n_params * log(SCRIPT_PARAMS_this$N_OBS)/SCRIPT_PARAMS_this$N_OBS) %>% 
+    mutate(total_data %>% slice(nr)) %>% 
+    mutate(punish_aic = map2_dbl(.x = data_list, .y = n_params, ~ .y * 2/nrow(.x))) %>% 
+    mutate(punish_bic = map2_dbl(.x = data_list, .y = n_params, ~ .y * log(nrow(.x))/nrow(.x))) %>% 
     mutate(value_aic = value_final + punish_aic) %>% 
     mutate(value_bic = value_final + punish_bic) %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-    mutate(res = map2(params_deep_final, tmpl, 
-                      ~get_residuals_once(params_deep = .x, 
-                                          tmpl = .y,
-                                          data_long = DATASET))) %>% 
+    mutate(res = pmap(., pmap_get_residuals_once)) %>% 
     mutate(B_mat = map2(params_deep_final, tmpl, 
                         ~fill_tmpl_whf_rev(theta = .x, 
                                            tmpl = .y)$B)) %>% 
@@ -101,17 +103,17 @@ THRESHOLD_LB = 0.05
 # H_0: No autocorrelation of (transformation of) residuals
 # -> good models have high p-values
 tt = tt %>% 
-  mutate(lb = map2_dbl(.x = shocks, .y = p_plus_q, ~ pt.test(resids = .x, lags.pt = 30, p_plus_q = .y)$p.val)) %>% 
-  mutate(lb_flag = map_lgl(lb, ~.x > THRESHOLD_LB)) %>% 
+  mutate(lb = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x, lag = 24 + .y, type = "Ljung-Box", fitdf = .y)$p.value }))) %>% 
+  mutate(lb_flag = map_lgl(lb, ~ any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_pval_sum = map_dbl(lb, sum)) %>%
   unnest_wider(lb, names_sep = "_pval") %>% 
   
-  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){Box.test(abs(x), lag = 24)$p.value }))) %>% 
+  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){Box.test(abs(x), lag = 24, type = "Ljung-Box", fitdf = .y)$p.value }))) %>% 
   mutate(lb_abs_flag = map_lgl(lb_abs, ~any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_abs_pval_sum = map_dbl(lb_abs, sum)) %>%
   unnest_wider(lb_abs, names_sep = "_pval") %>% 
   
-  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){Box.test(x^2, lag = 24)$p.value }))) %>% 
+  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){Box.test(x^2, lag = 24, type = "Ljung-Box", fitdf = .y)$p.value }))) %>% 
   mutate(lb_sq_flag = map_lgl(lb_sq, ~any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_sq_pval_sum = map_dbl(lb_sq, sum)) %>%
   unnest_wider(lb_sq, names_sep = "_pval") %>% 
@@ -119,8 +121,17 @@ tt = tt %>%
   mutate(lb_all_pval_sum = lb_pval_sum + lb_abs_pval_sum + lb_sq_pval_sum) %>% 
   arrange(lb_all_pval_sum)
 
+tt %>% 
+  mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag) %>% 
+  filter(indep_flag==0) %>% 
+  group_by(length, prst) %>% 
+  slice_min(value_aic)
+
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>%  pull(indep_flag) %>% table()
+
+tt %>% group_by(length, prst) %>% 
+  summarise_at(vars(contains("lb_sq_pval")), median)
 
 tt %>% 
   filter(sw_flag == 0) %>% 
