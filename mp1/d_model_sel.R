@@ -2,24 +2,24 @@ pkgs = c("tidyverse", "svarmawhf")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221024")
+               JOBID = "20221028")
 
-# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-#                    folder = "/proj/juhokois/sim_news/local_data/",
-#                    username = "juhokois",
-#                    password = "***") -> scnx
-# file_ix <- 1
-# file_dl <- NULL
-# while(!inherits(file_dl, 'try-error')){
-#   
-#   sftp::sftp_download(paste0("arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
-#                       tofolder = "/local_data/jobid_20221024/",
-#                       sftp_connection = scnx) %>% try() -> file_dl
-#   file_ix <- file_ix + 1 
-# }
-# sftp::sftp_download(file = "total_data.rds",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
+sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+                   folder = "/proj/juhokois/sim_news/local_data/",
+                   username = "juhokois",
+                   password = "***") -> scnx
+file_ix <- 1
+file_dl <- NULL
+while(!inherits(file_dl, 'try-error')){
+
+  sftp::sftp_download(paste0("arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
+                      tofolder = "/local_data/jobid_20221028/",
+                      sftp_connection = scnx) %>% try() -> file_dl
+  file_ix <- file_ix + 1
+}
+sftp::sftp_download(file = "total_data.rds",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
@@ -139,11 +139,7 @@ tt = tt %>%
 
 tt %>% 
   mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag) %>% 
-  filter(length=="short") %>%
-  group_by(p) %>% 
-  summarise_at(vars(contains("lb_pval")), median)
-  #group_by(length, prst) %>% 
-  #slice_min(value_aic)
+  filter(indep_flag==0, length=="long")
 
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>% pull(indep_flag) %>% table()
@@ -151,14 +147,18 @@ tt %>% pull(indep_flag) %>% table()
 tt %>% group_by(length, prst) %>% 
   summarise_at(vars(contains("lb_sq_pval")), min)
 
+tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
+tt %>% pull(norm_indep_flag) %>% table
+
 tt %>% 
   filter(sw_flag == 0) %>% 
   filter(jb_flag == 0) %>% 
   filter(lb_flag == 0) %>% 
+  filter(lb_abs_flag==0) %>% 
   filter(lb_sq_flag == 0) %>% 
-  filter(lb_abs_flag == 0) %>% 
-  arrange(value_aic)
+  group_by(length) %>% 
+  slice_min(value_aic) %>% pull(shocks)
 
-tt_full %>% filter(nr==736) %>% 
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
+tt_full %>% filter(nr==256) %>% 
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 96))) %>% 
   .$irf %>% .[[1]] %>% plot

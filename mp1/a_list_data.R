@@ -18,12 +18,12 @@ fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
 data_list <- list()
 # SHORT & QUAD DETREND
 data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19910701), date<ymd(20090101)) %>%
+  filter(date >= ymd(19910701), date<ymd(20080101)) %>%
   dplyr::select(-date) %>% 
   mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 # LONG & QUAD DETREND
 data_list [[2]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20090101)) %>%
+  filter(date >= ymd(19900101), date<ymd(20080101)) %>%
   dplyr::select(-date) %>% 
   mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 
