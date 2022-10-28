@@ -16,38 +16,16 @@ ebp <- read_csv("https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv
 fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
 
 data_list <- list()
-# SHORT & STRONG PERSISTENCE
+# SHORT & QUAD DETREND
 data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
+  filter(date >= ymd(19910701), date<ymd(20090101)) %>%
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
+# LONG & QUAD DETREND
+data_list [[2]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
   filter(date >= ymd(19900101), date<ymd(20090101)) %>%
-  dplyr::select(-date) %>% 
-  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
-# SHORT & MEDIUM PERSISTENCE
-data_list [[2]] <- fred_md %>% dplyr::select(date, LIP, PI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20090101)) %>%
-  dplyr::select(-date) %>% 
-  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
-# SHORT & LOW PERSISTENCE
-data_list [[3]] <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20090101)) %>%
-  dplyr::select(-date) %>% 
-  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
-# LONG & STRONG PERSISTENCE
-data_list [[4]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20150101)) %>%
-  dplyr::select(-date) %>% 
-  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
-# LONG & MEDIUM PERSISTENCE
-data_list [[5]] <- fred_md %>% dplyr::select(date, LIP, PI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20150101)) %>%
-  dplyr::select(-date) %>% 
-  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
-# LONG & LOW PERSISTENCE
-data_list [[6]] <- fred_md %>% dplyr::select(date, DLIP, DLCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19900101), date<ymd(20150101)) %>%
   dplyr::select(-date) %>% 
   mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
 
-data_list <- tibble(data_list,
-                    expand_grid(length= c("short", "long"),
-                                prst = c("str", "med", "low")))
+data_list <- tibble(data_list, length = c("short", "long"))
 saveRDS(data_list, "local_data/svarma_data_list.rds")

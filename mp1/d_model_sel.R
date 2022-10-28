@@ -4,6 +4,22 @@ void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
                JOBID = "20221024")
 
+# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+#                    folder = "/proj/juhokois/sim_news/local_data/",
+#                    username = "juhokois",
+#                    password = "***") -> scnx
+# file_ix <- 1
+# file_dl <- NULL
+# while(!inherits(file_dl, 'try-error')){
+#   
+#   sftp::sftp_download(paste0("arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
+#                       tofolder = "/local_data/jobid_20221024/",
+#                       sftp_connection = scnx) %>% try() -> file_dl
+#   file_ix <- file_ix + 1 
+# }
+# sftp::sftp_download(file = "total_data.rds",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
@@ -103,17 +119,17 @@ THRESHOLD_LB = 0.05
 # H_0: No autocorrelation of (transformation of) residuals
 # -> good models have high p-values
 tt = tt %>% 
-  mutate(lb = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x, lag = 24 + .y, type = "Ljung-Box", fitdf = .y)$p.value }))) %>% 
+  mutate(lb = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x, lag = 24)$p.value }))) %>% 
   mutate(lb_flag = map_lgl(lb, ~ any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_pval_sum = map_dbl(lb, sum)) %>%
   unnest_wider(lb, names_sep = "_pval") %>% 
   
-  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){Box.test(abs(x), lag = 24, type = "Ljung-Box", fitdf = .y)$p.value }))) %>% 
+  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(abs(x), lag = 24)$p.value }))) %>% 
   mutate(lb_abs_flag = map_lgl(lb_abs, ~any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_abs_pval_sum = map_dbl(lb_abs, sum)) %>%
   unnest_wider(lb_abs, names_sep = "_pval") %>% 
   
-  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){Box.test(x^2, lag = 24, type = "Ljung-Box", fitdf = .y)$p.value }))) %>% 
+  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x^2, lag = 24)$p.value }))) %>% 
   mutate(lb_sq_flag = map_lgl(lb_sq, ~any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_sq_pval_sum = map_dbl(lb_sq, sum)) %>%
   unnest_wider(lb_sq, names_sep = "_pval") %>% 
@@ -123,15 +139,17 @@ tt = tt %>%
 
 tt %>% 
   mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag) %>% 
-  filter(indep_flag==0) %>% 
-  group_by(length, prst) %>% 
-  slice_min(value_aic)
+  filter(length=="short") %>%
+  group_by(p) %>% 
+  summarise_at(vars(contains("lb_pval")), median)
+  #group_by(length, prst) %>% 
+  #slice_min(value_aic)
 
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
-tt %>%  pull(indep_flag) %>% table()
+tt %>% pull(indep_flag) %>% table()
 
 tt %>% group_by(length, prst) %>% 
-  summarise_at(vars(contains("lb_sq_pval")), median)
+  summarise_at(vars(contains("lb_sq_pval")), min)
 
 tt %>% 
   filter(sw_flag == 0) %>% 
@@ -141,7 +159,6 @@ tt %>%
   filter(lb_abs_flag == 0) %>% 
   arrange(value_aic)
 
-tt <- tt_full %>% filter(nr==73) %>% 
-  #mutate(cor.test = map2(.x = shocks, .y = p_plus_q, ~ pt.test(.x, 24, .y))$p.val)
+tt_full %>% filter(nr==736) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
   .$irf %>% .[[1]] %>% plot

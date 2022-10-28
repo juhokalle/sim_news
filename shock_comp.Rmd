@@ -143,6 +143,28 @@ norm_irf <- function(irf_arr, norm_int, norm_scm = c("surp", "news")){
   irf_arr
 }
 
+choose_perm_sign <- function(target_mat, cand_mat){
+  nvar <- ncol(target_mat)
+  sign_ix <- replicate(nvar, list(c(-1,1))) %>% expand.grid
+  perm_ix <- replicate(nvar, list(1:nvar)) %>% 
+    expand.grid %>% 
+    mutate(nd = apply(., 1, function(x) length(unique(x)))) %>% 
+    slice_max(nd) %>%
+    select(-nd)
+  cr0 <- 1e25
+  for(j in 1:nrow(sign_ix)){
+    for(jj in 1:nrow(perm_ix)){
+      x1 <- cand_mat %*% diag(sign_ix[j, ]) %*% diag(nvar)[, unlist(perm_ix[jj, ])]
+      cr1 <- norm(target_mat - x1, "F")
+      if(cr0 > cr1){
+        x_opt <- x1
+        cr0 <- cr1
+      }
+    }
+  }
+  x_opt
+}
+
 ```
 
 # Introduction and preliminaries
