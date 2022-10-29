@@ -12,9 +12,10 @@ file_ix <- 1
 file_dl <- NULL
 while(!inherits(file_dl, 'try-error')){
 
-  sftp::sftp_download(paste0("arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
-                      tofolder = "/local_data/jobid_20221028/",
-                      sftp_connection = scnx) %>% try() -> file_dl
+  sftp::sftp_download(paste0("jobid_20221028/arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
+                      tofolder = "/local_data/",
+                      sftp_connection = scnx) %>% 
+    try() %>% suppressWarnings() -> file_dl
   file_ix <- file_ix + 1
 }
 sftp::sftp_download(file = "total_data.rds",
@@ -144,21 +145,21 @@ tt %>%
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>% pull(indep_flag) %>% table()
 
-tt %>% group_by(length, prst) %>% 
-  summarise_at(vars(contains("lb_sq_pval")), min)
+tt %>% group_by(length) %>% 
+  summarise_at(vars(contains("lb_pval")), median)
 
 tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 tt %>% pull(norm_indep_flag) %>% table
 
 tt %>% 
-  filter(sw_flag == 0) %>% 
-  filter(jb_flag == 0) %>% 
-  filter(lb_flag == 0) %>% 
-  filter(lb_abs_flag==0) %>% 
-  filter(lb_sq_flag == 0) %>% 
+  # filter(sw_flag == 0) %>%
+  # filter(jb_flag == 0) %>%
+  # filter(lb_flag == 0) %>%
+  # filter(lb_abs_flag==0) %>% 
+  # filter(lb_sq_flag == 0) %>%
   group_by(length) %>% 
-  slice_min(value_aic) %>% pull(shocks)
+  slice_min(value_aic)
 
-tt_full %>% filter(nr==256) %>% 
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 96))) %>% 
-  .$irf %>% .[[1]] %>% plot
+tt_full %>% filter(nr==371) %>% 
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
+  .$irf %>% .[[1]] %>% .[,,1]
