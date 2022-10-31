@@ -18,14 +18,16 @@ fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
 data_list <- list()
 # SHORT & QUAD DETREND
 data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19910101), date<ymd(20190101)) %>%
+  filter(date >= ymd(19940101), date<ymd(20190101)) %>%
   dplyr::select(-date) %>% 
-  mutate_all(~ lm(.x ~ I(1:n())) %>% residuals)
+  mutate_at(vars(LIP, LCPI), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
+  mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
 # LONG & QUAD DETREND
 data_list [[2]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19910101), date<ymd(20190101)) %>%
+  filter(date >= ymd(19940101), date<ymd(20140101)) %>%
   dplyr::select(-date) %>% 
-  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)
+  mutate_at(vars(LIP, LCPI), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
+  mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
 
-data_list <- tibble(data_list, type = c("lin_trend", "qd_trend"))
+data_list <- tibble(data_list, length = c("long", "short"))
 saveRDS(data_list, "local_data/svarma_data_list.rds")
