@@ -138,28 +138,23 @@ tt = tt %>%
   mutate(lb_all_pval_sum = lb_pval_sum + lb_abs_pval_sum + lb_sq_pval_sum) %>% 
   arrange(lb_all_pval_sum)
 
-tt %>% 
-  mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag) %>% 
-  filter(indep_flag==0, length=="long")
-
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>% pull(indep_flag) %>% table()
 
-tt %>% group_by(length) %>% 
-  summarise_at(vars(contains("lb_pval")), median)
+tt %>% group_by(type) %>% 
+  summarise_at(vars(contains("lb_sq_pval")), median)
 
 tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 tt %>% pull(norm_indep_flag) %>% table
 
 tt %>% 
-  # filter(sw_flag == 0) %>%
-  # filter(jb_flag == 0) %>%
-  # filter(lb_flag == 0) %>%
-  # filter(lb_abs_flag==0) %>% 
-  # filter(lb_sq_flag == 0) %>%
-  group_by(length) %>% 
-  slice_min(value_aic)
+  filter(sw_flag == 0) %>%
+  filter(jb_flag == 0) %>%
+  filter(lb_flag == 0) %>%
+  filter(lb_abs_flag==0) %>% 
+  filter(lb_sq_flag == 0) %>% 
+  filter(type=="qd_trend")
 
-tt_full %>% filter(nr==371) %>% 
+tt_full %>% filter(nr==432) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
-  .$irf %>% .[[1]] %>% .[,,1]
+  pull(irf) %>% .[[1]] %>% plot

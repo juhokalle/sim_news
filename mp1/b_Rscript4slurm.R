@@ -1,5 +1,5 @@
 # Packages ####
-.libPaths(c(.libPaths(), "/proj/juhokois/R/"))
+.libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
