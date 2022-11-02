@@ -531,8 +531,8 @@ irf_fnl %>%
 ```{r bgw21, include=FALSE}
 svar_data <- fred_md %>%
   dplyr::select(date, BRW_monthly, LIP, LCPI, EBP, GS2) %>% 
-  #mutate(BRW_monthly = cumsum(coalesce(BRW_monthly, 0)) + BRW_monthly*0) %>% 
-  filter(complete.cases(.), date>=ymd(19821001)) %>% #, date<ymd(20090101)) %>%
+  mutate(BRW_monthly = cumsum(coalesce(BRW_monthly, 0)) + BRW_monthly*0) %>% 
+  filter(complete.cases(.), date>=ymd(19821001)) %>%
   mutate_if(is.numeric, ~.x - mean(.x))
 
 irf_ng <- get_irf(y = svar_data %>% dplyr::select(-date),
@@ -600,6 +600,7 @@ irf_fnl %>%
 ```{r mar21, include=FALSE}
 svar_data <- fred_md %>%
   dplyr::select(date, MM_IV1, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  mutate(MM_IV1 = cumsum(coalesce(MM_IV1, 0)) + MM_IV1*0) %>%
   filter(complete.cases(.), date>=ymd(19821001)) %>%
   mutate_if(is.numeric, ~.x - mean(.x))
 
@@ -666,6 +667,7 @@ irf_fnl %>%
 ```{r MAR21bb, include=FALSE}
 svar_data <- fred_md %>%
   dplyr::select(date, MM_IV5, LIP, LCPI, EBP, FEDFUNDS) %>% 
+  mutate(MM_IV5 = cumsum(coalesce(MM_IV5, 0)) + MM_IV5*0) %>%
   filter(complete.cases(.), date>=ymd(19821001)) %>%
   mutate_if(is.numeric, ~.x - mean(.x))
 
@@ -803,6 +805,7 @@ irf_fnl %>%
 ```{r ad22, include=FALSE}
 svar_data <- fred_md %>%
   dplyr::select(date, Shock, LIP, LCPI, EBP, FEDFUNDS) %>%
+  mutate(Shock = cumsum(coalesce(Shock, 0)) + Shock*0) %>%
   filter(complete.cases(.), date>=ymd(19821001)) %>%
   mutate_if(is.numeric, ~.x - mean(.x))
 
@@ -871,7 +874,7 @@ irf_fnl %>%
 ```{r bs22, include=FALSE}
 svar_data <- fred_md %>%
   dplyr::select(date, MPS, LIP, LCPI, EBP, FEDFUNDS) %>%
-  mutate(MPS = scale(MPS)) %>% 
+  mutate(MPS = cumsum(coalesce(MPS, 0)) + MPS*0) %>%
   filter(complete.cases(.), date>=ymd(19821001)) %>%
   mutate_if(is.numeric, ~.x - mean(.x))
 
@@ -938,7 +941,7 @@ irf_fnl %>%
 ```{r BS22bb, include=FALSE}
 svar_data <- fred_md %>%
   dplyr::select(date, MPS_ORTH, LIP, LCPI, EBP, FEDFUNDS) %>%
-  mutate(MPS_ORTH = scale(MPS_ORTH)) %>% 
+  mutate(MPS_ORTH = cumsum(coalesce(MPS_ORTH, 0)) + MPS_ORTH*0) %>%
   filter(complete.cases(.), date>=ymd(19821001)) %>%
   mutate_if(is.numeric, ~.x - mean(.x))
 

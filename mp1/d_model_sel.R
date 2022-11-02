@@ -2,7 +2,7 @@ pkgs = c("tidyverse", "svarmawhf")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221028")
+               JOBID = "20221101")
 
 sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    folder = "/proj/juhokois/sim_news/local_data/",
@@ -12,7 +12,7 @@ file_ix <- 1
 file_dl <- NULL
 while(!inherits(file_dl, 'try-error')){
 
-  sftp::sftp_download(paste0("jobid_20221028/arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
+  sftp::sftp_download(paste0("jobid_20221101/arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
                       tofolder = "/local_data/",
                       sftp_connection = scnx) %>% 
     try() %>% suppressWarnings() -> file_dl
@@ -120,17 +120,17 @@ THRESHOLD_LB = 0.05
 # H_0: No autocorrelation of (transformation of) residuals
 # -> good models have high p-values
 tt = tt %>% 
-  mutate(lb = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x, lag = 24)$p.value }))) %>% 
+  mutate(lb = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x, lag = 24, type = "Ljung-Box")$p.value }))) %>% 
   mutate(lb_flag = map_lgl(lb, ~ any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_pval_sum = map_dbl(lb, sum)) %>%
   unnest_wider(lb, names_sep = "_pval") %>% 
   
-  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(abs(x), lag = 24)$p.value }))) %>% 
+  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(abs(x), lag = 24, type = "Ljung-Box")$p.value }))) %>% 
   mutate(lb_abs_flag = map_lgl(lb_abs, ~any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_abs_pval_sum = map_dbl(lb_abs, sum)) %>%
   unnest_wider(lb_abs, names_sep = "_pval") %>% 
   
-  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x^2, lag = 24)$p.value }))) %>% 
+  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x^2, lag = 24, type = "Ljung-Box")$p.value }))) %>% 
   mutate(lb_sq_flag = map_lgl(lb_sq, ~any(.x < THRESHOLD_LB))) %>% 
   mutate(lb_sq_pval_sum = map_dbl(lb_sq, sum)) %>%
   unnest_wider(lb_sq, names_sep = "_pval") %>% 
@@ -141,8 +141,8 @@ tt = tt %>%
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>% pull(indep_flag) %>% table()
 
-tt %>% group_by(length) %>% 
-  summarise_at(vars(contains("lb_sq_pval")), median)
+tt %>% group_by(type, p_plus_q) %>% 
+  summarise_at(vars(contains("lb_pval")), median)
 
 tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 tt %>% pull(norm_indep_flag) %>% table
@@ -152,8 +152,9 @@ tt %>%
   filter(jb_flag == 0) %>%
   filter(lb_flag == 0) %>%
   filter(lb_abs_flag==0) %>% 
-  filter(lb_sq_flag == 0) %>% arrange(value_aic) %>% pull(value_aic)
+  filter(lb_sq_flag == 0)
 
-tt_full %>% filter(nr==729) %>% 
+tt_full %>% filter(n_unst>0) %>%
+  slice_min(value_bic) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
-  pull(irf) %>% .[[1]] %>% plot
+  pull(shocks) %>% .[[1]] %>% apply(2, acf)

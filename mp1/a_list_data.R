@@ -23,15 +23,19 @@ data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, ff4
   mutate(ff4_tc = cumsum(coalesce(ff4_tc, 0)) + ff4_tc*0) %>% 
   filter(complete.cases(.)) %>% 
   dplyr::select(-date) %>% 
-  mutate_at(vars(LIP, LCPI, ff4_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
-  mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+  # mutate_at(vars(LIP, LCPI, ff4_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
+  # mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
 # GK2
 data_list[[2]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, mp1_tc) %>%
   mutate(mp1_tc = cumsum(coalesce(mp1_tc, 0)) + mp1_tc*0) %>% 
   filter(complete.cases(.)) %>% 
   dplyr::select(-date) %>% 
-  mutate_at(vars(LIP, LCPI, mp1_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
-  mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+  # mutate_at(vars(LIP, LCPI, mp1_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
+  # mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
 
 data_list <- tibble(data_list, type = c("GK1", "GK2"))
 saveRDS(data_list, "local_data/svarma_data_list.rds")
