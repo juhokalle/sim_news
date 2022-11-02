@@ -530,7 +530,7 @@ irf_fnl %>%
 
 ```{r bgw21, include=FALSE}
 svar_data <- fred_md %>%
-  dplyr::select(date, BRW_monthly, LIP, LCPI, EBP, GS2) %>% 
+  dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, BRW_monthly) %>% 
   mutate(BRW_monthly = cumsum(coalesce(BRW_monthly, 0)) + BRW_monthly*0) %>% 
   filter(complete.cases(.), date>=ymd(19821001)) %>%
   mutate_if(is.numeric, ~.x - mean(.x))

@@ -2,7 +2,7 @@ pkgs = c("tidyverse", "svarmawhf")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221101")
+               JOBID = "20221102")
 
 sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    folder = "/proj/juhokois/sim_news/local_data/",
@@ -12,7 +12,7 @@ file_ix <- 1
 file_dl <- NULL
 while(!inherits(file_dl, 'try-error')){
 
-  sftp::sftp_download(paste0("jobid_20221101/arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
+  sftp::sftp_download(paste0("jobid_20221102/arrayjob_", if(file_ix<10) "0", file_ix, ".rds"),
                       tofolder = "/local_data/",
                       sftp_connection = scnx) %>% 
     try() %>% suppressWarnings() -> file_dl
@@ -141,8 +141,8 @@ tt = tt %>%
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>% pull(indep_flag) %>% table()
 
-tt %>% group_by(type, p_plus_q) %>% 
-  summarise_at(vars(contains("lb_pval")), median)
+tt %>% group_by(type) %>% 
+  summarise_at(vars(contains("lb_sq_pval")), median)
 
 tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 tt %>% pull(norm_indep_flag) %>% table
@@ -151,10 +151,8 @@ tt %>%
   filter(sw_flag == 0) %>%
   filter(jb_flag == 0) %>%
   filter(lb_flag == 0) %>%
-  filter(lb_abs_flag==0) %>% 
-  filter(lb_sq_flag == 0)
+  filter(lb_sq_flag == 0) %>% arrange(value_aic)
 
-tt_full %>% filter(n_unst>0) %>%
-  slice_min(value_bic) %>% 
+tt_full %>% filter(p==12, q==0) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
-  pull(shocks) %>% .[[1]] %>% apply(2, acf)
+  pull(irf) %>% .[[1]] %>% plot

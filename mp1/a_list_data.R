@@ -18,24 +18,87 @@ fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds")) %>%
   reduce(left_join, by = "date")
 
 data_list <- list()
+
 # GK1
 data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, ff4_tc) %>%
   mutate(ff4_tc = cumsum(coalesce(ff4_tc, 0)) + ff4_tc*0) %>% 
-  filter(complete.cases(.)) %>% 
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
   dplyr::select(-date) %>% 
   mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
   mutate_all(~ .x/sd(.x))
-  # mutate_at(vars(LIP, LCPI, ff4_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
-  # mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
+
 # GK2
 data_list[[2]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, mp1_tc) %>%
   mutate(mp1_tc = cumsum(coalesce(mp1_tc, 0)) + mp1_tc*0) %>% 
-  filter(complete.cases(.)) %>% 
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
   dplyr::select(-date) %>% 
   mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
   mutate_all(~ .x/sd(.x))
-  # mutate_at(vars(LIP, LCPI, mp1_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
-  # mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
 
-data_list <- tibble(data_list, type = c("GK1", "GK2"))
+# RR04
+data_list[[3]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, resid_full) %>% 
+  mutate(resid_full = cumsum(coalesce(resid_full, 0)) + resid_full*0) %>%
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+# BRW21
+data_list[[4]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, BRW_monthly) %>% 
+  mutate(BRW_monthly = cumsum(coalesce(BRW_monthly, 0)) + BRW_monthly*0) %>%
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+# MAR21a
+data_list[[5]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, MM_IV1) %>%
+  mutate(MM_IV1 = cumsum(coalesce(MM_IV1, 0)) + MM_IV1*0) %>%
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+#MAR21b
+data_list[[6]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, MM_IV5) %>% 
+  mutate(MM_IV5 = cumsum(coalesce(MM_IV5, 0)) + MM_IV5*0) %>%
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+# Jaro22
+data_list[[7]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, u1) %>% 
+  mutate(u1 = cumsum(coalesce(u1, 0)) + u1*0) %>% 
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+# AD22
+data_list[[8]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, Shock) %>%
+  mutate(Shock = cumsum(coalesce(Shock, 0)) + Shock*0) %>%
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+# BS22a
+data_list[[9]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, MPS) %>%
+  mutate(MPS = cumsum(coalesce(MPS, 0)) + MPS*0) %>%
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+# BS22b
+data_list[[10]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, MPS_ORTH) %>%
+  mutate(MPS_ORTH = cumsum(coalesce(MPS_ORTH, 0)) + MPS_ORTH*0) %>%
+  filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
+  dplyr::select(-date) %>% 
+  mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) %>% 
+  mutate_all(~ .x/sd(.x))
+
+data_list <- tibble(data_list, type = c("GK1", "GK2", "RR04", "BRW21", "MAR21a", "MAR21b",
+                                        "Jaro22", "AD22", "BS22a", "BS22b"))
 saveRDS(data_list, "local_data/svarma_data_list.rds")
