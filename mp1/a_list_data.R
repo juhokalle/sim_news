@@ -76,7 +76,7 @@ data_list[[7]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, u1) 
   mutate_all(~ .x/sd(.x))
 
 # AD22
-data_list[[8]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, Shock) %>%
+data_list[[8]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, Shock) %>%
   mutate(Shock = cumsum(coalesce(Shock, 0)) + Shock*0) %>%
   filter(complete.cases(.), date >= ymd(19940101), date<ymd(20140101)) %>% 
   dplyr::select(-date) %>% 
