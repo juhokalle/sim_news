@@ -141,7 +141,7 @@ tt = tt %>%
 tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>% pull(indep_flag) %>% table()
 
-tt %>% group_by(type) %>% 
+tt %>% group_by(length) %>% 
   summarise_at(vars(contains("lb_sq_pval")), median)
 
 tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
@@ -152,9 +152,8 @@ tt %>%
   filter(jb_flag == 0) %>%
   filter(lb_flag == 0) %>%
   filter(lb_abs_flag==0) %>% 
-  filter(lb_sq_flag == 0) %>% 
-  filter(type=="qd_trend")
+  filter(lb_sq_flag == 0) %>% arrange(value_aic) %>% pull(value_aic)
 
-tt_full %>% filter(nr==432) %>% 
+tt_full %>% filter(nr==729) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
   pull(irf) %>% .[[1]] %>% plot

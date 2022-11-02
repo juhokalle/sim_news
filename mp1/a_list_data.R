@@ -11,23 +11,27 @@ fred_md <- fredmd("http://files.stlouisfed.org/files/htdocs/fred-md/monthly/curr
          DLCPI = c(NA, diff(LCPI)),
          DLIP = c(NA, diff(LIP))) %>% 
   filter(date>ymd(19721201))
-
 ebp <- read_csv("https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv")
 fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
 
+fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds")) %>% 
+  reduce(left_join, by = "date")
+
 data_list <- list()
-# SHORT & QUAD DETREND
-data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19940101), date<ymd(20190101)) %>%
+# GK1
+data_list [[1]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, ff4_tc) %>%
+  mutate(ff4_tc = cumsum(coalesce(ff4_tc, 0)) + ff4_tc*0) %>% 
+  filter(complete.cases(.)) %>% 
   dplyr::select(-date) %>% 
-  mutate_at(vars(LIP, LCPI), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
+  mutate_at(vars(LIP, LCPI, ff4_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
   mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
-# LONG & QUAD DETREND
-data_list [[2]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>%
-  filter(date >= ymd(19940101), date<ymd(20140101)) %>%
+# GK2
+data_list[[2]] <- fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS, mp1_tc) %>%
+  mutate(mp1_tc = cumsum(coalesce(mp1_tc, 0)) + mp1_tc*0) %>% 
+  filter(complete.cases(.)) %>% 
   dplyr::select(-date) %>% 
-  mutate_at(vars(LIP, LCPI), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
+  mutate_at(vars(LIP, LCPI, mp1_tc), ~ lm(.x ~ I(1:n())) %>% residuals) %>% 
   mutate_at(vars(EBP, FEDFUNDS), ~ .x - mean(.x))
 
-data_list <- tibble(data_list, length = c("long", "short"))
+data_list <- tibble(data_list, type = c("GK1", "GK2"))
 saveRDS(data_list, "local_data/svarma_data_list.rds")
