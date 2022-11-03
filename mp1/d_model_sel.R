@@ -148,11 +148,12 @@ tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 tt %>% pull(norm_indep_flag) %>% table
 
 tt %>% 
-  filter(sw_flag == 0) %>%
-  filter(jb_flag == 0) %>%
-  filter(lb_flag == 0) %>%
-  filter(lb_sq_flag == 0) %>% arrange(value_aic)
+ # filter(type=="BRW21") %>%
+ # filter(p<4, q<4) %>%
+  group_by(type) %>% 
+  filter(norm_indep_flag==0) %>% 
+  summarise(n=n())
 
-tt_full %>% filter(p==12, q==0) %>%
+tt_full %>% filter(nr==814) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_lags = 48))) %>% 
-  pull(irf) %>% .[[1]] %>% plot
+  pull(irf) %>% .[[1]] %>% .[,,1]
