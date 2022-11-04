@@ -9,7 +9,8 @@ fred_md <- fredmd("http://files.stlouisfed.org/files/htdocs/fred-md/monthly/curr
          LCPI = 100*log(CPIAUCSL),
          PI = c(rep(NA, 12), diff(LCPI, 12)),
          DLCPI = c(NA, diff(LCPI)),
-         DLIP = c(NA, diff(LIP))) %>% 
+         DLIP = c(NA, diff(LIP)),
+         `S&P 500` = 100*log(`S&P 500`)) %>% 
   filter(date>ym(197212))
 ebp <- read_csv("https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv")
 fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
