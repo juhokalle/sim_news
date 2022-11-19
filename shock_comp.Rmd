@@ -20,7 +20,7 @@ pt.test <- function(resids, lags.pt, p_plus_q){
   C0inv <- solve(C0)
   tracesum <- rep(NA, lags.pt)
   for (i in 1:lags.pt) {
-      Ut.minus.i <- resids[-(nobs-c(1:i)), ]
+      Ut.minus.i <- resids[-(nobs-1:i), ]
       Ut <- resids[-c(1:i), ]
       Ci <- crossprod(Ut, Ut.minus.i)/nobs
       tracesum[i] <- sum(diag(t(Ci) %*% C0inv %*% Ci %*% C0inv))

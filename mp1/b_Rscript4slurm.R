@@ -26,7 +26,7 @@ if (params$USE_PARALLEL){
   params$N_CORES = as.integer(as.integer(args[6]))
 } else {
   params$N_CORES = 1
-} 
+}
 params$N_MODS_PER_CORE = as.integer(args[1]) # important param: specifies how many models are estimated by each array-job
 params$IX_ARRAY_JOB = as.integer(args[2]) # index of array-job. Number of array-jobs is determined from number of rows of dataframe containing all integer-values parameters
 params$SLURM_JOB_ID = as.integer(args[3])
@@ -34,8 +34,8 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rds"
 
-params$AR_ORDER_MAX = 13
-params$MA_ORDER_MAX = 4
+params$AR_ORDER_MAX = 5
+params$MA_ORDER_MAX = 5
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
@@ -101,6 +101,8 @@ tt_optim_parallel = tt %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
+  # standardize data for estimation
+  mutate(data_list = data_list %>% map(~apply(.x, 2, function(x) x/sd(x)))) %>% 
   select(theta_init, tmpl, data_list)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
