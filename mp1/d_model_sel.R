@@ -23,7 +23,7 @@ get_llf <- function(p, q, kappa, k, dtype){
 sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    folder = "/proj/juhokois/sim_news/local_data/",
                    username = "juhokois",
-                   password = "***") -> scnx
+                   password = "securitasLOKKIv4lvoo") -> scnx
 file_ix <- 1
 file_dl <- NULL
 while(!inherits(file_dl, 'try-error')){
@@ -163,7 +163,7 @@ tt %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = type, values_from = n)
 
-tt %>% filter(type=="AD22") %>% filter(norm_indep_flag==0) %>% arrange(value_bic)
+tt %>% filter(type=="MAR21a") %>% filter(norm_indep_flag==0) %>% arrange(value_bic)
 
 rotmat <- function(x, n){
   
@@ -225,7 +225,7 @@ get_rest_irf <- function(tbl_slice, rest_ix){
   ebp <- read_csv("https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv")
   fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
   ds <- fred_md %>% 
-    dplyr::select(date, LIP, LCPI, EBP, `S&P 500`, FEDFUNDS) %>% 
+    dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>% 
     filter(date >= ym(199401), date<ym(201401))
   
   MPR <- if(tbl_slice$type=="GK1"){
@@ -274,7 +274,7 @@ get_rest_irf <- function(tbl_slice, rest_ix){
   return(list(irf = irf_out, pval = pval, rmat = rmat))
 }
 
-tbl0 <- tt %>% filter(nr==899) %>% 
+tbl0 <- tt %>% filter(nr==1105) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 

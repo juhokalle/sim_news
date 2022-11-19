@@ -9,17 +9,6 @@ vec_files <- list.files(main_path)
 tt <- readRDS("local_data/data_list.rds")
 n_ahead <- 12
 
-# modify file names such that they are ordered correctly 1,2,...
-for(ix_file in seq_along(vec_files)){
-  file_nr <- sub(".*_", "", sub("\\..*", "", vec_files[ix_file]))
-  if((nchar(file_nr)==1 && length(vec_files) < 100) || (nchar(file_nr)==2 && length(vec_files) >= 100)){
-    file_nr <- paste0("0", file_nr)
-  } else if(nchar(file_nr)==1 && length(vec_files) > 100){
-    file_nr <- paste0("00", file_nr)
-  }
-  file.rename(paste0(main_path, vec_files[ix_file]),
-              paste0(main_path, "arrayjob_", file_nr, ".rds"))
-}
 vec_files <- list.files(main_path)
 
 tibble_list = vector("list", length(vec_files))

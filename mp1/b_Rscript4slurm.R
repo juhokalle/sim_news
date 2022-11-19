@@ -23,7 +23,7 @@ hlp_parallel = function(list_input){
 # Parameters from Rmarkdown
 params$USE_PARALLEL = TRUE
 if (params$USE_PARALLEL){
-  params$N_CORES = as.integer(as.integer(args[6]))
+  params$N_CORES = as.integer(args[6])
 } else {
   params$N_CORES = 1
 }
@@ -99,10 +99,10 @@ tt_optim_parallel = tt %>%
   slice((1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE):(params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE)) %>% 
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
+  # standardize data for estimation
+  mutate(data_list = data_list %>% map(~apply(.x, 2, function(x) x/sd(x)))) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
-  # standardize data for estimation
-  # mutate(data_list = data_list %>% map(~apply(.x, 2, function(x) x/sd(x)))) %>% 
   select(theta_init, tmpl, data_list)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
