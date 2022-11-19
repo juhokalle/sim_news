@@ -2,7 +2,7 @@ pkgs = c("tidyverse", "svarmawhf")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221102")
+               JOBID = "20221118")
 get_llf <- function(p, q, kappa, k, dtype){
   total_data <- readRDS("local_data/total_data.rds")
   data_i <- total_data %>% 
@@ -20,30 +20,28 @@ get_llf <- function(p, q, kappa, k, dtype){
 }
 
 
-# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-#                    folder = "/proj/juhokois/sim_news/local_data/",
-#                    username = "juhokois",
-#                    password = "***") -> scnx
-# file_ix <- 1
-# file_dl <- NULL
-# while(!inherits(file_dl, 'try-error')){
-# 
-#   zz <- if(file_ix<10) "00" else if(file_ix < 100) "0"
-#   sftp::sftp_download(paste0("jobid_20221102/arrayjob_", zz, file_ix, ".rds"),
-#                       tofolder = "/local_data/",
-#                       sftp_connection = scnx) %>% 
-#     try() %>% suppressWarnings() -> file_dl
-#   file_ix <- file_ix + 1
-# }
-# sftp::sftp_download(file = "total_data.rds",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
+sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+                   folder = "/proj/juhokois/sim_news/local_data/",
+                   username = "juhokois",
+                   password = "***") -> scnx
+file_ix <- 1
+file_dl <- NULL
+while(!inherits(file_dl, 'try-error')){
+
+  zz <- if(file_ix<10) "00" else if(file_ix < 100) "0"
+  sftp::sftp_download(paste0("jobid_20221118/arrayjob_", zz, file_ix, ".rds"),
+                      tofolder = "/local_data/",
+                      sftp_connection = scnx) %>%
+    try() %>% suppressWarnings() -> file_dl
+  file_ix <- file_ix + 1
+}
+sftp::sftp_download(file = "total_data.rds",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
-SCRIPT_PARAMS$FILE_NAME_INPUT <-  "local_data/svarma_data.rds"
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
-total_data <- readRDS("local_data/total_data.rds")
   
 pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "sgt", ...){
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
@@ -72,7 +70,7 @@ for (ix_file in seq_along(vec_files)){
     select(nr, params_deep_final, value_final, input_integerparams) %>% 
     mutate(n_params = map_int(params_deep_final, length)) %>% 
     unnest_wider(input_integerparams) %>% 
-    mutate(total_data %>% slice(nr)) %>% 
+    mutate(readRDS("local_data/total_data.rds") %>% slice(nr)) %>% 
     mutate(punish_aic = map2_dbl(.x = data_list, .y = n_params, ~ .y * 2/nrow(.x))) %>% 
     mutate(punish_bic = map2_dbl(.x = data_list, .y = n_params, ~ .y * log(nrow(.x))/nrow(.x))) %>% 
     mutate(value_aic = value_final + punish_aic) %>% 
