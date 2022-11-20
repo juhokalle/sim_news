@@ -35,7 +35,7 @@ data_list <- mp_id %>%
                               mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)))
 
 sd_list <- tibble(std_dev = lapply(data_list, function(x) apply(x, 2, sd)), mp_type)
-data_list <- tibble(lapply(data_list, function(x) x %>% mutate_all(~.x/sd(.x))),
+data_list <- tibble(data_list = lapply(data_list, function(x) x %>% mutate_all(~.x/sd(.x))),
                     mp_type)
 saveRDS(sd_list, "local_data/svarma_sd_list.rds")
 saveRDS(data_list, "local_data/svarma_data_list.rds")
