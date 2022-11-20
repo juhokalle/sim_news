@@ -23,7 +23,7 @@ get_llf <- function(p, q, kappa, k, dtype){
 sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    folder = "/proj/juhokois/sim_news/local_data/",
                    username = "juhokois",
-                   password = "securitasLOKKIv4lvoo") -> scnx
+                   password = "***") -> scnx
 file_ix <- 1
 file_dl <- NULL
 while(!inherits(file_dl, 'try-error')){
