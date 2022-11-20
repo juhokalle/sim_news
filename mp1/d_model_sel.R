@@ -26,15 +26,10 @@ sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    password = "***") -> scnx
 file_ix <- 1
 file_dl <- NULL
-while(!inherits(file_dl, 'try-error')){
 
-  zz <- if(file_ix<10) "00" else if(file_ix < 100) "0"
-  sftp::sftp_download(paste0("jobid_20221118/arrayjob_", zz, file_ix, ".rds"),
-                      tofolder = "/local_data/",
-                      sftp_connection = scnx) %>%
-    try() %>% suppressWarnings() -> file_dl
-  file_ix <- file_ix + 1
-}
+sftp::sftp_download(file = "total_data.rds",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
 sftp::sftp_download(file = "total_data.rds",
                     tofolder = "/local_data/",
                     sftp_connection = scnx)
@@ -210,53 +205,10 @@ optim_zr <- function(input_mat, row_ix){
 }
 
 get_rest_irf <- function(tbl_slice, rest_ix){
-  
-  fred_md <- fbi::fredmd("http://files.stlouisfed.org/files/htdocs/fred-md/monthly/current.csv",
-                    transform = FALSE,
-                    date_start = ym(197201)) %>%
-    as_tibble() %>% 
-    mutate(LIP = 100*log(INDPRO),
-           LCPI = 100*log(CPIAUCSL),
-           PI = c(rep(NA, 12), diff(LCPI, 12)),
-           DLCPI = c(NA, diff(LCPI)),
-           DLIP = c(NA, diff(LIP)),
-           `S&P 500` = 100*log(`S&P 500`)) %>% 
-    filter(date>ym(197212))
-  ebp <- read_csv("https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv")
-  fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
-  ds <- fred_md %>% 
-    dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>% 
-    filter(date >= ym(199401), date<ym(201401))
-  
-  MPR <- if(tbl_slice$type=="GK1"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(mp1_tc)  %>% .[[1]]
-  } else if(tbl_slice$type=="GK2"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(ff4_tc) %>% .[[1]]
-  } else if(tbl_slice$type=="MAR21a"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(MM_IV1) %>% .[[1]]
-  } else if(tbl_slice$type=="MAR21b"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(MM_IV5) %>% .[[1]]
-  } else if(tbl_slice$type=="Jaro22"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(u1) %>% .[[1]]
-  } else if(tbl_slice$type=="AD22"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(Shock) %>% .[[1]]
-  } else if(tbl_slice$type=="BS22a"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(MPS) %>% .[[1]]
-  } else if(tbl_slice$type=="BS22b"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(MPS_ORTH) %>% .[[1]]
-  } else if(tbl_slice$type=="BRW21"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(BRW_monthly) %>% .[[1]]
-  } else if(tbl_slice$type=="GSS22"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(MP1) %>% .[[1]]
-  } else if(tbl_slice$type=="RR04"){
-    readRDS("local_data/shock_tbl.rds") %>% filter(date %in% ds$date) %>% dplyr::select(resid_full) %>% .[[1]]
-  }
-  
-  ds$MPR <- MPR
-  ds %>% mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
-    filter(complete.cases(.)) %>% 
-    dplyr::select(-date) %>% 
-    mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals) -> ds
+
+  ds <- readRDS("local_data/total_data.rds") %>% 
+    filter(tbl_slice %>% select(p, q, kappa, k, type)) %>% 
+    pull(data_list)
   nobs <- nrow(ds)
   sd_mat <- apply(ds, 2, sd) %>% diag()
   
