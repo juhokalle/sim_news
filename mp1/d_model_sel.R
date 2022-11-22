@@ -1,12 +1,19 @@
+# ----------------------------------------------------------------------- #
+# This script creates model output: diagnostics, model selection, IRFs... #
+# ----------------------------------------------------------------------- #
+
 pkgs = c("tidyverse", "svarmawhf")
-select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
+select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
                JOBID = "20221118")
-get_llf <- function(p, q, kappa, k, dtype){
+
+# functions for the analysis
+get_llf <- function(p, q, kappa, k, dtype)
+{
   total_data <- readRDS("local_data/total_data.rds")
   data_i <- total_data %>% 
-    filter(type==dtype) %>% 
+    filter(mp_type==dtype) %>% 
     pull(data_list) %>% .[[1]]
   dim_out <- dim(data_i)[2]
   tmpl_i <- tmpl_whf_rev(dim_out = dim_out,
@@ -19,33 +26,114 @@ get_llf <- function(p, q, kappa, k, dtype){
   
 }
 
+rotmat <- function(x, n)
+{
+  rot_ix <- combn(n,2)
+  final_mat <- diag(n)
+  
+  for(jj in 1:ncol(rot_ix)){
+    rot_mat <- matrix(c(cos(x[jj]), -sin(x[jj]), sin(x[jj]), cos(x[jj])), 2, 2)
+    temp_mat <- diag(n)
+    temp_mat[rot_ix[,jj], rot_ix[,jj]] <- rot_mat
+    final_mat <- final_mat %*% temp_mat
+  }
+  
+  final_mat
+}
 
-sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-                   folder = "/proj/juhokois/sim_news/local_data/",
-                   username = "juhokois",
-                   password = "***") -> scnx
-file_ix <- 1
-file_dl <- NULL
+ff <- function(x, zero_ix, input_mat)
+{
+  row_ix <- if(is.null(dim(zero_ix))) zero_ix[1] else zero_ix[,1]
+  col_ix <- if(is.null(dim(zero_ix))) zero_ix[2] else zero_ix[,2]
+  sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
+}
 
-sftp::sftp_download(file = "total_data.rds",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
-sftp::sftp_download(file = "total_data.rds",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
+optim_zr <- function(input_mat, row_ix)
+{
+  n_var <- dim(input_mat)[1]
+  opt_ix <- rep(0, n_var)
+  rotmat_ix <- array(NA, dim = c(n_var, n_var, n_var))
+  n_rest <- length(row_ix)
+  
+  for(jj in 1:n_var){
+    # UNCOSTRAINED OPTIM: BFGS
+    zero_ix = if(n_rest==1) c(row_ix, jj) else matrix(c(row_ix, rep(jj, n_rest)), n_rest, n_rest)
+    optim(par = rep(0, (n_var^2-n_var)/2),
+          fn = ff, 
+          zero_ix = zero_ix,
+          input_mat = input_mat,
+          method = "BFGS") -> opt_obj
+    
+    rotmat_ix[,,jj] <- rotmat(opt_obj$par, n_var)
+    opt_ix[jj] <- norm(input_mat - input_mat%*%rotmat_ix[,,jj], "F")
+  }
+  rotmat_ix[,,which.min(opt_ix)]
+}
+
+get_rest_irf <- function(tbl_slice, rest_ix)
+{
+  nobs <- tbl_slice$nobs
+  sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
+    filter(mp_type%in%tbl_slice$mp_type) %>%
+    pull(std_dev) %>% .[[1]] %>%  diag
+  
+  irf_out <- sd_mat %r% tbl_slice$irf[[1]]
+  
+  rmat <- optim_zr(irf_out[,,1], rest_ix)
+  llf0 <- do.call(get_llf, tbl_slice %>% select(p, q, kappa, k, mp_type) %>% rename(dtype = mp_type))
+  params0 <- tbl_slice$params_deep_final[[1]]
+  
+  params0[tbl_slice$params_deep_final[[1]] %in% tbl_slice$B_mat[[1]]] <- c(tbl0$B_mat[[1]]%*%rmat)
+  pval <- 1-pchisq(2*nobs*(llf0(params0)-tbl0$value_final), length(rest_ix))
+  
+  irf_out <- irf_whf(params0, tbl_slice$tmpl[[1]], 48)
+  
+  return(list(irf = irf_out, pval = pval, rmat = rmat))
+}
+
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "sgt", ...)
+{
+  tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
+}
+
+pmap_get_residuals_once = function(params_deep_final, tmpl, data_list, ...)
+{
+  get_residuals_once(params_deep = params_deep_final, tmpl = tmpl, data_long = data_list)
+}
+
+get_fevd <- function (irf_arr) 
+{
+  nvar <- dim(irf_arr)[1]
+  n.ahead <- dim(irf_arr)[3]
+  fe <- list()
+  for (i in 1:nvar) {
+    fe[[i]] <- as.data.frame(t(irf_arr[i, , ]))
+  }
+  fe2 <- fe
+  for (i in 1:length(fe)) {
+    for (j in 1:n.ahead) {
+      fe2[[i]][j, ] <- (colSums(fe[[i]][j:1, ]^2)/sum(fe[[i]][j:1, ]^2)) * 100
+    }
+  }
+  return(fe2)
+}
+
+
+# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+#                    folder = "/proj/juhokois/sim_news/local_data/",
+#                    username = "juhokois",
+#                    password = "***") -> scnx
+# sftp::sftp_download(file = "jobid_20221118.zip",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
+# sftp::sftp_download(file = "total_data.rds",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
   
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "sgt", ...){
-  tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
-}
-
-pmap_get_residuals_once = function(params_deep_final, tmpl, data_list, ...){
-  get_residuals_once(params_deep = params_deep_final, tmpl = tmpl, data_long = data_list)
-}
-
 tt_full <- tibble()
 for (ix_file in seq_along(vec_files)){
   file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
@@ -66,8 +154,9 @@ for (ix_file in seq_along(vec_files)){
     mutate(n_params = map_int(params_deep_final, length)) %>% 
     unnest_wider(input_integerparams) %>% 
     mutate(readRDS("local_data/total_data.rds") %>% slice(nr)) %>% 
-    mutate(punish_aic = map2_dbl(.x = data_list, .y = n_params, ~ .y * 2/nrow(.x))) %>% 
-    mutate(punish_bic = map2_dbl(.x = data_list, .y = n_params, ~ .y * log(nrow(.x))/nrow(.x))) %>% 
+    mutate(nobs = map_dbl(data_list, ~nrow(.x))) %>% 
+    mutate(punish_aic = n_params * 2/nobs) %>% 
+    mutate(punish_bic = n_params * log(nobs)/nobs) %>% 
     mutate(value_aic = value_final + punish_aic) %>% 
     mutate(value_bic = value_final + punish_bic) %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
@@ -76,14 +165,13 @@ for (ix_file in seq_along(vec_files)){
                         ~fill_tmpl_whf_rev(theta = .x, 
                                            tmpl = .y)$B)) %>% 
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-    select(nr, value_aic, value_bic, value_final, p, q, B_mat, shocks, n_st, n_unst, type, kappa, k, params_deep_final) %>% 
+    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, mp_type, B_mat, shocks, params_deep_final) %>% 
     bind_rows(tt_full)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
-
-#tt_full = reduce(tibble_list, bind_rows)
+saveRDS(tt, "local_data/results_total_20221122.rds")
 tt = tt_full %>% 
   mutate(rk_aic = rank(value_aic),
          rk_bic = rank(value_bic),
@@ -154,81 +242,18 @@ tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>% 
-  group_by(type, p_plus_q) %>%
+  group_by(mp_type, p_plus_q) %>%
   summarise(n=n()) %>% 
-  pivot_wider(names_from = type, values_from = n)
+  pivot_wider(names_from = mp_type, values_from = n)
 
-tt %>% filter(type=="MAR21a") %>% filter(norm_indep_flag==0) %>% arrange(value_bic)
+tt %>% filter(mp_type=="BRW21") %>% filter(norm_indep_flag==0) %>% arrange(value_bic)
 
-rotmat <- function(x, n){
-  
-  rot_ix <- combn(n,2)
-  final_mat <- diag(n)
-  
-  for(jj in 1:ncol(rot_ix)){
-    rot_mat <- matrix(c(cos(x[jj]), -sin(x[jj]), sin(x[jj]), cos(x[jj])), 2, 2)
-    temp_mat <- diag(n)
-    temp_mat[rot_ix[,jj], rot_ix[,jj]] <- rot_mat
-    final_mat <- final_mat %*% temp_mat
-  }
-  
-  final_mat
-}
-
-ff <- function(x, zero_ix, input_mat){
-  
-  row_ix <- if(is.null(dim(zero_ix))) zero_ix[1] else zero_ix[,1]
-  col_ix <- if(is.null(dim(zero_ix))) zero_ix[2] else zero_ix[,2]
-  sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
-}
-
-optim_zr <- function(input_mat, row_ix){
-  
-  n_var <- dim(input_mat)[1]
-  opt_ix <- rep(0, n_var)
-  rotmat_ix <- array(NA, dim = c(n_var, n_var, n_var))
-  n_rest <- length(row_ix)
-  
-  for(jj in 1:n_var){
-    # UNCOSTRAINED OPTIM: BFGS
-    zero_ix = if(n_rest==1) c(row_ix, jj) else matrix(c(row_ix, rep(jj, n_rest)), n_rest, n_rest)
-    optim(par = rep(0, (n_var^2-n_var)/2),
-          fn = ff, 
-          zero_ix = zero_ix,
-          input_mat = input_mat,
-          method = "BFGS") -> opt_obj
-    
-    rotmat_ix[,,jj] <- rotmat(opt_obj$par, n_var)
-    opt_ix[jj] <- norm(input_mat - input_mat%*%rotmat_ix[,,jj], "F")
-  }
-  rotmat_ix[,,which.min(opt_ix)]
-}
-
-get_rest_irf <- function(tbl_slice, rest_ix){
-
-  ds <- readRDS("local_data/total_data.rds") %>% 
-    filter(tbl_slice %>% select(p, q, kappa, k, type)) %>% 
-    pull(data_list)
-  nobs <- nrow(ds)
-  sd_mat <- apply(ds, 2, sd) %>% diag()
-  
-  irf_out <- sd_mat %r% tbl_slice$irf[[1]]
-  
-  rmat <- optim_zr(irf_out[,,1], rest_ix)
-  llf0 <- do.call(get_llf, tbl_slice %>% select(p, q, kappa, k, type) %>% rename(dtype = type))
-  params0 <- tbl_slice$params_deep_final[[1]]
-  
-  params0[tbl_slice$params_deep_final[[1]] %in% tbl_slice$B_mat[[1]]] <- c(tbl0$B_mat[[1]]%*%rmat)
-  pval <- 1-pchisq(2*nobs*(llf0(params0)-tbl0$value_final), length(rest_ix))
-
-  irf_out <- irf_whf(params0, tbl_slice$tmpl[[1]], 48)
-  
-  return(list(irf = irf_out, pval = pval, rmat = rmat))
-}
-
-tbl0 <- tt %>% filter(nr==1105) %>% 
+tbl0 <- tt %>% filter(nr==1390) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
-irf0 <- get_rest_irf(tbl0, rest_ix = 6)
+
+irf0 <- get_rest_irf(tbl0, rest_ix = 5)
+test <- get_fevd(irf0$irf %>% unclass)
+
 irf0$irf %>% plot

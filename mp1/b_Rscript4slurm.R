@@ -1,9 +1,12 @@
+# ----------------------------- #
+# Script to be called via SLURM #
+# ----------------------------- #
+
 # Packages ####
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
-# Script to be called via SLURM
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
