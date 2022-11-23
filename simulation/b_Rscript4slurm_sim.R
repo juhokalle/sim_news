@@ -74,11 +74,8 @@ cat("\n--------------------------------------------------\n")
 
 # Data and derived PARAMETERS ####
 DATASET = readRDS(params$FILE_NAME_INPUT)
-
 DIM_OUT = dim(DATASET$data_list[[1]])[2]
 params$DIM_OUT = DIM_OUT
-N_OBS = dim(DATASET$data_list[[1]])[1]
-params$N_OBS = N_OBS
 
 # Tibble with integer-valued parameters
 tt = 

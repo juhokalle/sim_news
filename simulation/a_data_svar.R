@@ -97,4 +97,4 @@ for(prm_ix in 1:nrow(sim_prm)){
 }
 data_tbl <- expand_grid(sim_prm, mc_ix = 1:mc_n)
 data_tbl$data_list <- data_list
-saveRDS(data_list, file = "./local_data/data_list.rds")
+saveRDS(data_tbl, file = "./local_data/data_list.rds")
