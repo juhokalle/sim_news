@@ -1,17 +1,17 @@
-# purpose and the output of the script: ###
-# the script 1) simulates data from the model with news shocks
-# with different degrees of non-Gaussianity and non-invertibility;
-# 2) estimates the SVAR model where the structural shocks are
-# identified using non-Gaussianity; 3) saving the dataset and 
-# the SVAR impulse response function
+# --------------------------------------------------------------- #
+# purpose and the output of the script: ------------------------- #
+# 1) simulates data from the model with news shocks ------------- #
+# with different degrees of non-Gaussianity and non-invertibility #
+# 2) saving the dataset to be used in the estimation ------------ #
+# --------------------------------------------------------------- #
 
 # Packages ####
-.libPaths(c(.libPaths(), "/proj/juhokois/R/"))
-pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
+pkgs <- c("svarmawhf", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
 # Helper functions ####
-simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...) {
+simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
+{
   
   d = dim(model$sys)
   m = d[1]
@@ -64,7 +64,8 @@ simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...) {
   return(list(y = t(y[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE]),
               u = t(u[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE])))
 }
-sim_news <- function(beta, rho, nobs, nu){
+sim_news <- function(beta, rho, nobs, nu)
+{
   theta <- 1/(1-beta*rho)
   ar_pol <- array(c(diag(2),                   # lag 0
                     -rho, -rho*theta, 0, 0),   # lag 1
@@ -85,48 +86,15 @@ sim_news <- function(beta, rho, nobs, nu){
 }
 
 # Simulation params ####
-n_ahead = 12
 mc_n <- 101
-sim_prm <- expand.grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = 12)
+sim_prm <- expand_grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = c(3, 20))
 data_list <- vector("list", mc_n*nrow(sim_prm))
-irf_svar <- array(NA, c(2, 2, n_ahead+1, mc_n, nrow(sim_prm)))
-
 # Simulation and data save ####
 for(prm_ix in 1:nrow(sim_prm)){
-  
-  mc_ix <- 1
-  
-  while(mc_ix <= mc_n){
-    
-    DATASET <- do.call(sim_news, sim_prm[prm_ix,])$y$y
-    
-    # SVAR ####
-    var_obj <- vars::VAR(DATASET, type = "none", lag.max = 12, ic = "SC") %>% 
-      suppressWarnings()
-    rest_mat <- diag(4)
-    rest_mat[3,3] <- 0 
-    svar_obj <- svars::id.ngml(var_obj, 
-                               stage3 = TRUE,
-                               restriction_matrix = rest_mat) %>% try(silent = TRUE)
-    
-    if(!inherits(svar_obj, 'try-error')){
-    
-      irf_svar[,,,mc_ix,prm_ix] <- svar_obj %>% 
-        vars::irf(n.ahead = n_ahead+1) %>%
-        .$irf %>%
-        unlist %>%
-        .[-c(1:(n_ahead+1))] %>% 
-        array(c(n_ahead+1, 2, 2)) %>%
-        aperm(c(3,2,1))
-      data_list[[(prm_ix-1)*mc_n+mc_ix]] <- DATASET
-      mc_ix <- mc_ix + 1
-      if(mc_ix%%20==0) cat(paste("MC run:", mc_ix, "w/ prm_set:", prm_ix, "\n"))
-    }
+  for(mc_ix in 1:mc_n){
+    data_list[[(prm_ix-1)*mc_n+mc_ix]] <- do.call(sim_news, sim_prm[prm_ix,])$y$y
   }
 }
-
-data_list <- tibble(data_list, 
-                    mc_ix = rep(1:mc_n, nrow(sim_prm)), 
-                    prm_ix = rep(1:nrow(sim_prm), each = mc_n))
-saveRDS(irf_svar, file = "./local_data/irf_svar.rds")
+data_tbl <- expand_grid(sim_prm, mc_ix = 1:mc_n)
+data_tbl$data_list <- data_list
 saveRDS(data_list, file = "./local_data/data_list.rds")

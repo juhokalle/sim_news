@@ -123,7 +123,7 @@ sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    folder = "/proj/juhokois/sim_news/local_data/",
                    username = "juhokois",
                    password = "***") -> scnx
-sftp::sftp_download(file = "jobid_20221118.tar.gz",
+sftp::sftp_download(file = "jobid_20221118.zip",
                     tofolder = "/local_data/",
                     sftp_connection = scnx)
 sftp::sftp_download(file = "total_data.rds",
@@ -241,19 +241,19 @@ tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==1) %>% 
-  group_by(mp_type, nobs) %>%
+  filter(norm_indep_flag==0) %>% 
+  group_by(mp_type, p_plus_q) %>%
   summarise(n=n()) %>% 
-  pivot_wider(names_from = mp_type, values_from = n)
+  pivot_wider(names_from = mp_type, values_from = n) %>% 
+  arrange(p_plus_q)
 
-tt %>% filter(mp_type=="BRW21") %>% filter(norm_indep_flag==1) %>% arrange(value_bic)
+tt %>% filter(mp_type=="GK15b") %>% filter(norm_indep_flag==0) %>% arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr==2347) %>% 
+tbl0 <- tt %>% filter(nr==597) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
+#irf0 <- get_rest_irf(tbl0, rest_ix = 5)
+test <- get_fevd(tbl0$irf %>% .[[1]] %>% unclass)
 
-irf0 <- get_rest_irf(tbl0, rest_ix = 5)
-test <- get_fevd(irf0$irf %>% unclass)
-
-irf0$irf %>% plot
+tbl0$irf %>% .[[1]] %>% plot
