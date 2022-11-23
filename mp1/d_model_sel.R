@@ -119,16 +119,16 @@ get_fevd <- function (irf_arr)
 }
 
 
-# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-#                    folder = "/proj/juhokois/sim_news/local_data/",
-#                    username = "juhokois",
-#                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20221118.zip",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
-# sftp::sftp_download(file = "total_data.rds",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
+sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+                   folder = "/proj/juhokois/sim_news/local_data/",
+                   username = "juhokois",
+                   password = "***") -> scnx
+sftp::sftp_download(file = "jobid_20221118.tar.gz",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
+sftp::sftp_download(file = "total_data.rds",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
@@ -171,7 +171,7 @@ for (ix_file in seq_along(vec_files)){
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
-saveRDS(tt, "local_data/results_total_20221122.rds")
+saveRDS(tt_full, "local_data/results_total_20221122.rds")
 tt = tt_full %>% 
   mutate(rk_aic = rank(value_aic),
          rk_bic = rank(value_bic),
@@ -241,14 +241,14 @@ tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==0) %>% 
-  group_by(mp_type, p_plus_q) %>%
+  filter(norm_indep_flag==1) %>% 
+  group_by(mp_type, nobs) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = mp_type, values_from = n)
 
-tt %>% filter(mp_type=="BRW21") %>% filter(norm_indep_flag==0) %>% arrange(value_bic)
+tt %>% filter(mp_type=="BRW21") %>% filter(norm_indep_flag==1) %>% arrange(value_bic)
 
-tbl0 <- tt %>% filter(nr==1390) %>% 
+tbl0 <- tt %>% filter(nr==2347) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
