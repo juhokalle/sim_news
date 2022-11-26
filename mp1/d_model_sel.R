@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221118")
+               JOBID = "20221123")
 
 # functions for the analysis
 get_llf <- function(p, q, kappa, k, dtype)
@@ -119,23 +119,24 @@ get_fevd <- function (irf_arr)
 }
 
 
-sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-                   folder = "/proj/juhokois/sim_news/local_data/",
-                   username = "juhokois",
-                   password = "***") -> scnx
-sftp::sftp_download(file = "jobid_20221118.zip",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
-sftp::sftp_download(file = "total_data.rds",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
+# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+#                    folder = "/proj/juhokois/sim_news/local_data/",
+#                    username = "juhokois",
+#                    password = "***") -> scnx
+# sftp::sftp_download(file = "jobid_20221118.zip",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
+# sftp::sftp_download(file = "total_data.rds",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
   
 tt_full <- tibble()
-for (ix_file in seq_along(vec_files)){
+for (ix_file in seq_along(vec_files))
+{
   file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
                              vec_files[ix_file]))
   

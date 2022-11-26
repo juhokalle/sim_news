@@ -64,7 +64,7 @@ simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
   return(list(y = t(y[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE]),
               u = t(u[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE])))
 }
-sim_news <- function(beta, rho, nobs, nu)
+sim_news <- function(beta, rho, nobs = 250, nu = 3)
 {
   theta <- 1/(1-beta*rho)
   ar_pol <- array(c(diag(2),                   # lag 0
@@ -86,7 +86,7 @@ sim_news <- function(beta, rho, nobs, nu)
 }
 
 # Simulation params ####
-mc_n <- 101
+mc_n <- 500
 sim_prm <- expand_grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = c(3, 20))
 data_list <- vector("list", mc_n*nrow(sim_prm))
 # Simulation and data save ####

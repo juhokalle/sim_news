@@ -34,7 +34,7 @@ params$IX_ARRAY_JOB = as.integer(args[2]) # index of array-job. Number of array-
 params$SLURM_JOB_ID = as.integer(args[3])
 params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
-params$FILE_NAME_INPUT = "./local_data/data_list.rds"
+params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/data_list.rds"
 
 params$AR_ORDER_MAX = 2
 params$MA_ORDER_MAX = 2
