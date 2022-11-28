@@ -7,8 +7,17 @@ void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
                JOBID = "20221123")
-n_ahead <- 12
+n_ahead <- 8
 # functions for the analysis
+id_news_shock <- function(irf_arr){
+  
+  for(j in 1:dim(irf_arr)[2]){
+    irf0 <- irf_arr[,,1]
+    max_imp <- apply(irf0, 2, max) # identify the 
+    sweep()
+  }
+}
+
 get_llf <- function(p, q, kappa, k, dtype)
 {
   total_data <- readRDS("local_data/total_data.rds")
@@ -24,6 +33,29 @@ get_llf <- function(p, q, kappa, k, dtype)
                          shock_distr = "sgt")
   ll_whf_factory(data_wide = t(data_i), tmpl = tmpl_i, shock_distr = "sgt")
   
+}
+
+sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
+{
+  theta <- 1/(1-beta*rho)
+  ar_pol <- array(c(diag(2),                   # lag 0
+                    -rho, -rho*theta, 0, 0),   # lag 1
+                  dim = c(2,2,2))
+  ma_pol <- array(c(diag(2), # lag 0
+                    0, -theta/beta, 0, 1/beta,       # lag 1
+                    -1/beta^2, -theta/beta^2, 1/(theta*beta^2), 1/beta^2), # lag 2
+                  dim = c(2,2,3))
+  bmat <- matrix(c(1, theta, 0, theta*beta^2), 2, 2)
+  re_mod <- armamod(sys = lmfd(ar_pol, ma_pol), sigma_L = bmat)
+  if(no_sim) return(re_mod)
+  data_out <- simu_y(model = re_mod,
+                     rand.gen =  function(x) stats::rt(x, nu),
+                     n.burnin = 2*nobs,
+                     n.obs = nobs)
+  return(list(y = data_out, 
+              mod = re_mod, 
+              prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
+  )
 }
 
 rotmat <- function(x, n)
@@ -47,6 +79,7 @@ ff <- function(x, zero_ix, input_mat)
   col_ix <- if(is.null(dim(zero_ix))) zero_ix[2] else zero_ix[,2]
   sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
 }
+
 
 optim_zr <- function(input_mat, zr_ix, opt_it = TRUE)
 {
@@ -173,14 +206,12 @@ sim_comparison <- function(irf_arr, shock_ix, qntl, prms)
   
   res_final <- tibble(prms) %>% 
     mutate(irf_md = map(.x = beta, 
-                        ~impresp(obj = sim_news(beta = .x, rho = 0.5)$mod,
-                                 lag.max = n_ahead,
-                                 H = sim_news(beta = .x, rho = 0.5)$mod$sigma_L) %>%
-                          .$irf %>% 
+                        ~with(sim_news(beta = .x, rho = 0.5, no_sim = TRUE), 
+                              pseries(sys, n_ahead)%r%sigma_L) %>%
                           unclass %>% 
                           .[shock_ix[1],shock_ix[2],]
-    )
-    ) %>% 
+                        )
+           ) %>% 
     unnest_longer("irf_md") %>% 
     mutate(lag = rep(0:n_ahead, n()/(n_ahead+1)),
            model = "MOD_0") %>% 
@@ -264,6 +295,81 @@ for (ix_file in seq_along(vec_files))
   #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
 
+tt = tt_full %>% 
+  mutate(rk_aic = rank(value_aic),
+         rk_bic = rank(value_bic),
+         rk_mle = rank(value_final)) %>% 
+  arrange(value_aic) %>% 
+  mutate(p_plus_q = p+q)
+
+THRESHOLD_SW = 0.05 
+
+# filter good models by flag == 0
+# H_0: Normality -> good models have small p-values
+tt = tt %>% 
+  mutate(sw = map(shocks, ~apply(.x, 2, FUN = function(x){shapiro.test(x)$p.value}))) %>% 
+  mutate(sw_flag = map_int(sw, ~sum(.x > THRESHOLD_SW))) %>% # one component may be Gaussian
+  mutate(sw_pval_sum = map_dbl(sw, sum)) %>% 
+  unnest_wider(sw, names_sep = "_pval") %>% 
+  arrange(desc(sw_pval_sum))
+
+tt %>% 
+  pull(sw_flag) %>% table()
+
+THRESHOLD_JB = 0.05 
+
+# filter good moodels by flag == 0
+# H_0: Normality -> good models have small p-values
+tt = tt %>% 
+  mutate(jb = map(shocks, ~apply(.x, 2, FUN = function(x){tsoutliers::JarqueBera.test(x)[[1]]$p.value}))) %>% 
+  mutate(jb_flag = map_int(jb, ~sum(.x > THRESHOLD_JB))) %>% # one component may be Gaussian
+  mutate(jb_pval_sum = map_dbl(jb, sum)) %>% 
+  unnest_wider(jb, names_sep = "_pval") %>% 
+  arrange(desc(jb_pval_sum))
+
+tt %>% 
+  pull(jb_flag) %>% table()
+
+tt = tt %>% mutate(normality_flag = sw_flag + jb_flag)
+tt %>% pull(normality_flag) %>% table()
+
+THRESHOLD_LB = 0.05
+
+# filter good moodels by flag == 0
+# H_0: No autocorrelation of (transformation of) residuals
+# -> good models have high p-values
+tt = tt %>% 
+  mutate(lb = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x, lag = 24, type = "Ljung-Box")$p.value }))) %>% 
+  mutate(lb_flag = map_lgl(lb, ~ any(.x < THRESHOLD_LB))) %>% 
+  mutate(lb_pval_sum = map_dbl(lb, sum)) %>%
+  unnest_wider(lb, names_sep = "_pval") %>% 
+  
+  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(abs(x), lag = 24, type = "Ljung-Box")$p.value }))) %>% 
+  mutate(lb_abs_flag = map_lgl(lb_abs, ~any(.x < THRESHOLD_LB))) %>% 
+  mutate(lb_abs_pval_sum = map_dbl(lb_abs, sum)) %>%
+  unnest_wider(lb_abs, names_sep = "_pval") %>% 
+  
+  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x^2, lag = 24, type = "Ljung-Box")$p.value }))) %>% 
+  mutate(lb_sq_flag = map_lgl(lb_sq, ~any(.x < THRESHOLD_LB))) %>% 
+  mutate(lb_sq_pval_sum = map_dbl(lb_sq, sum)) %>%
+  unnest_wider(lb_sq, names_sep = "_pval") %>% 
+  
+  mutate(lb_all_pval_sum = lb_pval_sum + lb_abs_pval_sum + lb_sq_pval_sum) %>% 
+  arrange(lb_all_pval_sum)
+
+tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
+tt %>% pull(indep_flag) %>% table()
+
+tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
+
+tt %>%
+  #mutate(n_params = map_int(params_deep_final, length)) %>% 
+  #filter(norm_indep_flag==0) %>% 
+  #group_by(beta, nu) %>%
+  count(norm_indep_flag, nu, n_unst) %>% 
+  pivot_wider(names_from = c(nu, n_unst), values_from = n) %>% 
+  mutate(across(!norm_indep_flag, ~ 100*cumsum(.x)/sum(.x, na.rm = TRUE)))
+
 tt_opt <- tt_full %>% 
   group_by(mc_ix, n_unst, beta, nu) %>% 
   slice_min(value_aic) %>% 
@@ -279,36 +385,65 @@ irf_arr <- array(NA, c(DIM_OUT, DIM_OUT, n_ahead+1, nrow(prms), length(mc_n), 2)
 for(prm_ix in 1:nrow(prms)){
   for(mc_i in mc_n){
     for(mod_ix in 0:1){
+      # Extract IRF
       irf_i <- tt_opt %>% 
-        filter(beta==prms[prm_ix,1], nu==prms[prm_ix,2], mc_ix == mc_i, n_unst==mod_ix) %>% 
+        filter(beta == prms[prm_ix,1], 
+               nu == prms[prm_ix,2], 
+               mc_ix == mc_i, 
+               n_unst == mod_ix) %>% 
         pull(irf) %>% .[[1]]
-      # assume the correct signed permutation is known
-      tgt_mat <- sim_news(prms[prm_ix,1], 0.5, 250, prms[prm_ix,2])$mod$sigma_L 
-      # get and rotate signed permutation
-      rt_sign_perm <- choose_perm_sign(tgt_mat, cand_mat = irf_i[,,1])
-      irf_i <- irf_i%r%rt_sign_perm[[2]]
-      # impose zero restriction 
-      rt_zero <- optim_zr(irf_i[,,1], c(1,2), opt_it = FALSE)
+      # Order news shock last by identifying it from FEVD
+      fevd_i <- irf_i %>% unclass %>% get_fevd
+      # Contribution per horizon normalized w.r.t. initial period
+      max_i <- lapply(fevd_i, function(x)  t(t(x)/unlist(x[1,])) %>% apply(2, max))
+      # Which horizon accounts for the most contribution w.r.t. initial period?
+      whichMax_i <- sapply(max_i, which.max)
+      # Choose the column of FEVD which shows a) the largest jump w.r.t. init. 
+      # period across variables or b) the largest delayed jump in every variable,
+      # which should be the case with pure news shock
+      if(length(unique(whichMax_i))>1){
+        news_ix <- max_i %>% sapply(max) %>% which.max()
+      } else{
+        news_ix <- unique(whichMax_i)
+      }
+      irf_i <- irf_i%r%diag(DIM_OUT)[, c((1:DIM_OUT)[-news_ix], news_ix)]
+      # Impose zero restriction 
+      rt_zero <- optim_zr(input_mat = irf_i[,,1],
+                          zr_ix = c(1,2),
+                          opt_it = FALSE)
       irf_i <- irf_i%r%rt_zero
-      # final check: is the news shock is correctly signed?
-      max_ix <- apply(abs(irf_i[,2,]), 1, which.max)
-      if(all(apply(irf_i[,2,max_ix], 1, max) < 0)) news_rot <- diag(c(1,-1)) else news_rot <- diag(2)
-      irf_arr[,,,prm_ix,mc_i,mod_ix+1] <- unclass(irf_i%r%news_rot)
+      # Impose positive signs of the shocks: 1) conventional shock; 2) news shock
+      if(all(irf_i[,1,1]<0)) irf_i <- irf_i%r%diag(c(-1, 1))
+      max_ix <- apply(abs(irf_i[,DIM_OUT,]), 1, which.max)
+      if(all(apply(irf_i[,DIM_OUT,max_ix], 1, max) < 0)) irf_i <- irf_i%r%diag(c(1,-1))
+      irf_arr[,,,prm_ix,mc_i,mod_ix+1] <- unclass(irf_i)
     }
   }
 }
 
-plot_irf <-  sim_comparison(irf_arr, c(2,2), c(.16,.84), prms)
-plot_all <- map2(.x = plot_irf, 
-                 .y = list(c(-0.2,1.5), c(-0.2,2.2),
-                           c(-0.2,1.5), c(-0.2,2.2)), 
-                 ~ .x + 
-                     theme(plot.title = element_text(size = 6, hjust = 0.5),
-                           plot.margin=grid::unit(c(1,1,0,0), "mm"),
-                           axis.text.x = element_text(size=4),
-                           axis.text.y = element_text(size=4)
-                           ) +
-                   ylim(.y)
-                   )
-ggsave(filename = "ninv.pdf", gridExtra::marrangeGrob(plot_all, nrow = 2, ncol = 2, top = NULL))
+margs_plus_font <- theme(plot.title = element_text(size = 8, hjust = 0.5),
+                         plot.margin=grid::unit(c(1, 1, 0, 0), "mm"),
+                         axis.text.x = element_text(size = 6),
+                         axis.text.y = element_text(size = 6))
 
+plot1 <- map2(.x = sim_comparison(irf_arr, c(2, 2), c(.14, .86), prms),
+              .y = list(c(-0.2, 1.5), c(-0.25, 2.2),
+                        c(-0.2, 1.5), c(-0.25, 2.2)),
+                 ~ .x + margs_plus_font + ylim(.y)
+                )
+
+plot2 <- map2(.x = sim_comparison(irf_arr, c(1, 2), c(.14,.86), prms),
+              .y = list(c(-0.3,1.2), c(-0.25,1.2),
+                        c(-0.3,1.2), c(-0.25,1.2)),
+                 ~ .x + margs_plus_font + ylim(.y)
+              )
+
+ggsave(filename = "./paper_output/sim_plt.pdf",
+       gridExtra::marrangeGrob(plot1, nrow = 2, ncol = 2, top = NULL),
+       width = 7.5,
+       height = 5)
+
+ggsave(filename = "./paper_output/appendix1.pdf",
+       gridExtra::marrangeGrob(plot2, nrow = 2, ncol = 2, top = NULL),
+       width = 7.5,
+       height = 5)

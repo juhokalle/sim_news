@@ -37,21 +37,20 @@ mp_type <- c("GK15a", "GK15b", "RR04", "BRW21", "MAR21a", "MAR21b",
              "Jaro22", "AD22", "BS22a", "BS22b", "GSS22")
 
 # remove variables with too few obs when starting in 2003/08
-rm_ix <- c(3,5,6,8)
-mp_id <- mp_id[-rm_ix]
-mp_type <- mp_type[-rm_ix]
+# rm_ix <- c(3,5,6,8)
+# mp_id <- mp_id[-rm_ix]
+# mp_type <- mp_type[-rm_ix]
 
 # choose baseline variables
 dl <- length(mp_id) %>% 
   replicate(fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>% list)
-
 
 # sample span, and linear detrending
 dl <- mp_id %>% 
   lapply(function(x) mutate(dl[[which(mp_id %in% x)]] %>%
                               mutate(fred_md %>% dplyr::select(all_of(x)) %>% rename(MPR = all_of(x))) %>% 
                               mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
-                              filter(complete.cases(.), date >= ym(200308), date<ym(202001)) %>%
+                              filter(complete.cases(.), date >= ym(199401), date<ym(201401)) %>%
                               dplyr::select(-date) %>% 
                               mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)))
 
@@ -59,7 +58,6 @@ dl <- mp_id %>%
 data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~.x/sd(.x))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
                     mp_type)
-
 # save data
 saveRDS(data_list, "local_data/svarma_data_list.rds")
 

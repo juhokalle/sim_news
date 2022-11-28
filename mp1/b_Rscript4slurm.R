@@ -90,6 +90,8 @@ tt =
   mutate(n_st = DIM_OUT * q - n_unst) %>% 
   mutate(kappa = n_unst %/% DIM_OUT,
          k = n_unst %% DIM_OUT) %>% 
+  # Estimate SVAR for comparison 
+  bind_rows(tibble(p = (params$AR_ORDER_MAX+1):12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   expand_grid(DATASET)
 
 if(params$IX_ARRAY_JOB==1){

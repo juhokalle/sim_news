@@ -101,7 +101,7 @@ pmap_get_residuals_once = function(params_deep_final, tmpl, data_list, ...)
   get_residuals_once(params_deep = params_deep_final, tmpl = tmpl, data_long = data_list)
 }
 
-get_fevd <- function (irf_arr) 
+get_fevd <- function (irf_arr)
 {
   nvar <- dim(irf_arr)[1]
   n.ahead <- dim(irf_arr)[3]
@@ -172,7 +172,8 @@ for (ix_file in seq_along(vec_files))
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
-saveRDS(tt_full, "local_data/results_total_20221122.rds")
+#saveRDS(tt_full, "local_data/results_total_20221122.rds")
+tt_full <- readRDS("local_data/results_199401_201312.rds")
 tt = tt_full %>% 
   mutate(rk_aic = rank(value_aic),
          rk_bic = rank(value_bic),
@@ -239,6 +240,8 @@ tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
 tt %>% pull(indep_flag) %>% table()
 
 tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
+
+tt %>% pull(norm_indep_flag) %>% table
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 

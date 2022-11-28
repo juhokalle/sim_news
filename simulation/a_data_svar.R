@@ -64,7 +64,7 @@ simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
   return(list(y = t(y[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE]),
               u = t(u[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE])))
 }
-sim_news <- function(beta, rho, nobs = 250, nu = 3)
+sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
 {
   theta <- 1/(1-beta*rho)
   ar_pol <- array(c(diag(2),                   # lag 0
@@ -76,13 +76,15 @@ sim_news <- function(beta, rho, nobs = 250, nu = 3)
                   dim = c(2,2,3))
   bmat <- matrix(c(1, theta, 0, theta*beta^2), 2, 2)
   re_mod <- armamod(sys = lmfd(ar_pol, ma_pol), sigma_L = bmat)
+  if(no_sim) return(re_mod)
   data_out <- simu_y(model = re_mod,
                      rand.gen =  function(x) stats::rt(x, nu),
                      n.burnin = 2*nobs,
                      n.obs = nobs)
-  list(y = data_out, 
-       mod = re_mod, 
-       prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
+  return(list(y = data_out, 
+              mod = re_mod, 
+              prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
+  )
 }
 
 # Simulation params ####
