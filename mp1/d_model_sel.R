@@ -161,16 +161,16 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-#                    folder = "/proj/juhokois/sim_news/local_data/",
-#                    username = "juhokois",
-#                    password = "securitasLOKKIv4lvoo") -> scnx
-# sftp::sftp_download(file = "jobid_20221118.zip",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
-# sftp::sftp_download(file = "total_data.rds",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
+sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+                   folder = "/proj/juhokois/sim_news/local_data/",
+                   username = "juhokois",
+                   password = "***") -> scnx
+sftp::sftp_download(file = "jobid_20221118.zip",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
+sftp::sftp_download(file = "total_data.rds",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
