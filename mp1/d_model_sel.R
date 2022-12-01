@@ -6,9 +6,52 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221123")
+               JOBID = "20221118")
 
 # functions for the analysis
+norm_irf <- function(irf_arr, norm_int, norm_pos=dim(irf_arr)[1], norm_scm = c("surp", "news"))
+{
+  
+  if(norm_scm=="surp"){
+    irf_arr <- irf_arr[,1,,drop=FALSE]/irf_arr[norm_pos,1,1]*norm_int
+  } else if(norm_scm=="news"){
+    irf_arr <- irf_arr[,1,,drop=FALSE]/max(irf_arr[norm_pos,1,])*norm_int
+  }
+  irf_arr
+}
+
+plot_irf <- function(irf_arr, var_name, shock_name){
+  n_var <- dim(irf_arr)[1]
+  n_shock <- dim(irf_arr)[2]
+  n_ahead <- dim(irf_arr)[3]-1
+  tibble(irf = c(irf_arr),
+         variable = var_name %>% 
+           factor(levels = var_name) %>% 
+           rep((n_ahead+1)*n_shock),
+         shock = shock_name %>% 
+           factor(levels=shock_name) %>% 
+           rep(each=n_var) %>% 
+           rep(n_ahead+1),
+         months = rep(0:n_ahead, each = n_var*n_shock)) %>% 
+    ggplot(aes(x=months, y = irf)) +
+    geom_line() +
+    geom_hline(yintercept = 0, size = 0.15) +
+    facet_grid(variable ~ shock, scales = "free_y") +
+    facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
+    scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
+    scale_y_continuous(n.breaks = 5) +
+    theme(legend.position = "none",
+          axis.text.x = element_text(size = 6, angle = 0),
+          axis.title.y = element_blank(),
+          axis.text.y = element_text(size=6),
+          panel.grid.major = element_blank(),
+          panel.spacing = unit(.5, "lines"),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          strip.background = element_blank(),
+          axis.line = element_line(colour = "black"))
+}
+
 get_llf <- function(p, q, kappa, k, dtype)
 {
   total_data <- readRDS("local_data/total_data.rds")
@@ -118,11 +161,10 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-
 # sftp::sftp_connect(server = "turso.cs.helsinki.fi",
 #                    folder = "/proj/juhokois/sim_news/local_data/",
 #                    username = "juhokois",
-#                    password = "***") -> scnx
+#                    password = "securitasLOKKIv4lvoo") -> scnx
 # sftp::sftp_download(file = "jobid_20221118.zip",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
@@ -173,7 +215,7 @@ for (ix_file in seq_along(vec_files))
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
 #saveRDS(tt_full, "local_data/results_total_20221122.rds")
-tt_full <- readRDS("local_data/results_199401_201312.rds")
+#tt_full <- readRDS("local_data/results_199401_201312.rds")
 tt = tt_full %>% 
   mutate(rk_aic = rank(value_aic),
          rk_bic = rank(value_bic),
@@ -245,19 +287,61 @@ tt %>% pull(norm_indep_flag) %>% table
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==0) %>% 
+  filter(norm_indep_flag==0) %>%
+  filter(nobs==240) %>% 
   group_by(mp_type, p_plus_q) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = mp_type, values_from = n) %>% 
   arrange(p_plus_q)
 
-tt %>% filter(mp_type=="GK15b") %>% filter(norm_indep_flag==0) %>% arrange(value_aic)
+tt %>% filter(mp_type=="BS22a") %>% 
+  filter(norm_indep_flag==0) %>% 
+  arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr==597) %>% 
+tbl0 <- tt %>% filter(nr==1120) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
-#irf0 <- get_rest_irf(tbl0, rest_ix = 5)
-test <- get_fevd(tbl0$irf %>% .[[1]] %>% unclass)
+sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
+  filter("BS22a"%in%tbl0$mp_type) %>%
+  pull(std_dev) %>% .[[1]] %>%  diag
 
-tbl0$irf %>% .[[1]] %>% plot
+irf_out <- sd_mat %r% tbl0$irf[[1]]
+
+irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
+                         irf_out[,5,,drop=FALSE]),
+                .y = c("news", "surp"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_pos = 4, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
+
+irf_bs[c(1:2,4),,] %>%
+  plot_irf(var_name = c("LogIP", "LogCPI", "FFR"),
+           shock_name = c("News", "Surprise")) -> p1
+
+ggsave(filename = "paper_output/IRF1.pdf", plot = p1)
+
+tt %>% filter(mp_type=="BRW21") %>% 
+  filter(norm_indep_flag==0) %>% 
+  arrange(value_aic)
+
+tbl0 <- tt %>% filter(nr==2248) %>% 
+  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
+
+sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
+  filter("BRW21"%in%tbl0$mp_type) %>%
+  pull(std_dev) %>% .[[1]] %>%  diag
+
+irf_out <- sd_mat %r% tbl0$irf[[1]]
+
+irf_brw <- map2(.x = list(irf_out[,1,,drop=FALSE],
+                         irf_out[,3,,drop=FALSE]),
+               .y = c("news", "surp"), 
+               ~norm_irf(irf_arr = .x, norm_scm = .y, norm_pos = 4, norm_int = 0.25)) %>%
+  reduce(abind::abind, along=2)
+
+irf_bs[c(1:2,4),,] %>%
+  plot_irf(var_name = c("LogIP", "LogCPI", "FFR"),
+           shock_name = c("News", "Surprise")) -> p2
+
+ggsave(filename = "paper_output/IRF2.pdf", plot = p2)

@@ -8,16 +8,7 @@ select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
                JOBID = "20221123")
 n_ahead <- 8
-# functions for the analysis
-id_news_shock <- function(irf_arr){
-  
-  for(j in 1:dim(irf_arr)[2]){
-    irf0 <- irf_arr[,,1]
-    max_imp <- apply(irf0, 2, max) # identify the 
-    sweep()
-  }
-}
-
+# functions for the analysi
 get_llf <- function(p, q, kappa, k, dtype)
 {
   total_data <- readRDS("local_data/total_data.rds")
@@ -295,81 +286,6 @@ for (ix_file in seq_along(vec_files))
   #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
 
-tt = tt_full %>% 
-  mutate(rk_aic = rank(value_aic),
-         rk_bic = rank(value_bic),
-         rk_mle = rank(value_final)) %>% 
-  arrange(value_aic) %>% 
-  mutate(p_plus_q = p+q)
-
-THRESHOLD_SW = 0.05 
-
-# filter good models by flag == 0
-# H_0: Normality -> good models have small p-values
-tt = tt %>% 
-  mutate(sw = map(shocks, ~apply(.x, 2, FUN = function(x){shapiro.test(x)$p.value}))) %>% 
-  mutate(sw_flag = map_int(sw, ~sum(.x > THRESHOLD_SW))) %>% # one component may be Gaussian
-  mutate(sw_pval_sum = map_dbl(sw, sum)) %>% 
-  unnest_wider(sw, names_sep = "_pval") %>% 
-  arrange(desc(sw_pval_sum))
-
-tt %>% 
-  pull(sw_flag) %>% table()
-
-THRESHOLD_JB = 0.05 
-
-# filter good moodels by flag == 0
-# H_0: Normality -> good models have small p-values
-tt = tt %>% 
-  mutate(jb = map(shocks, ~apply(.x, 2, FUN = function(x){tsoutliers::JarqueBera.test(x)[[1]]$p.value}))) %>% 
-  mutate(jb_flag = map_int(jb, ~sum(.x > THRESHOLD_JB))) %>% # one component may be Gaussian
-  mutate(jb_pval_sum = map_dbl(jb, sum)) %>% 
-  unnest_wider(jb, names_sep = "_pval") %>% 
-  arrange(desc(jb_pval_sum))
-
-tt %>% 
-  pull(jb_flag) %>% table()
-
-tt = tt %>% mutate(normality_flag = sw_flag + jb_flag)
-tt %>% pull(normality_flag) %>% table()
-
-THRESHOLD_LB = 0.05
-
-# filter good moodels by flag == 0
-# H_0: No autocorrelation of (transformation of) residuals
-# -> good models have high p-values
-tt = tt %>% 
-  mutate(lb = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x, lag = 24, type = "Ljung-Box")$p.value }))) %>% 
-  mutate(lb_flag = map_lgl(lb, ~ any(.x < THRESHOLD_LB))) %>% 
-  mutate(lb_pval_sum = map_dbl(lb, sum)) %>%
-  unnest_wider(lb, names_sep = "_pval") %>% 
-  
-  mutate(lb_abs = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(abs(x), lag = 24, type = "Ljung-Box")$p.value }))) %>% 
-  mutate(lb_abs_flag = map_lgl(lb_abs, ~any(.x < THRESHOLD_LB))) %>% 
-  mutate(lb_abs_pval_sum = map_dbl(lb_abs, sum)) %>%
-  unnest_wider(lb_abs, names_sep = "_pval") %>% 
-  
-  mutate(lb_sq = map2(.x = shocks, .y = p_plus_q, ~ apply(.x, 2, FUN = function(x){ Box.test(x^2, lag = 24, type = "Ljung-Box")$p.value }))) %>% 
-  mutate(lb_sq_flag = map_lgl(lb_sq, ~any(.x < THRESHOLD_LB))) %>% 
-  mutate(lb_sq_pval_sum = map_dbl(lb_sq, sum)) %>%
-  unnest_wider(lb_sq, names_sep = "_pval") %>% 
-  
-  mutate(lb_all_pval_sum = lb_pval_sum + lb_abs_pval_sum + lb_sq_pval_sum) %>% 
-  arrange(lb_all_pval_sum)
-
-tt = tt %>% mutate(indep_flag = lb_flag + lb_abs_flag + lb_sq_flag)
-tt %>% pull(indep_flag) %>% table()
-
-tt <- tt %>% mutate(norm_indep_flag = indep_flag+normality_flag)
-
-tt %>%
-  #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  #filter(norm_indep_flag==0) %>% 
-  #group_by(beta, nu) %>%
-  count(norm_indep_flag, nu, n_unst) %>% 
-  pivot_wider(names_from = c(nu, n_unst), values_from = n) %>% 
-  mutate(across(!norm_indep_flag, ~ 100*cumsum(.x)/sum(.x, na.rm = TRUE)))
-
 tt_opt <- tt_full %>% 
   group_by(mc_ix, n_unst, beta, nu) %>% 
   slice_min(value_aic) %>% 
@@ -440,6 +356,18 @@ plot2 <- map2(.x = sim_comparison(irf_arr, c(1, 2), c(.14,.86), prms),
 
 ggsave(filename = "./paper_output/sim_plt.pdf",
        gridExtra::marrangeGrob(plot1, nrow = 2, ncol = 2, top = NULL),
+       width = 7.5,
+       height = 5)
+ggsave(filename = "./paper_output/sim_plt_a.pdf",
+       plot1[[1]],
+       width = 7.5,
+       height = 5)
+ggsave(filename = "./paper_output/sim_plt_b.pdf",
+       plot1[[3]],
+       width = 7.5,
+       height = 5)
+ggsave(filename = "./paper_output/sim_plt_d.pdf",
+       plot1[[4]],
        width = 7.5,
        height = 5)
 

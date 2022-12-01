@@ -49,7 +49,7 @@ dl <- length(mp_id) %>%
 dl <- mp_id %>% 
   lapply(function(x) mutate(dl[[which(mp_id %in% x)]] %>%
                               mutate(fred_md %>% dplyr::select(all_of(x)) %>% rename(MPR = all_of(x))) %>% 
-                              mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
+                              # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
                               filter(complete.cases(.), date >= ym(199401), date<ym(201401)) %>%
                               dplyr::select(-date) %>% 
                               mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)))
