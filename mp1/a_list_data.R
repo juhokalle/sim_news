@@ -30,11 +30,11 @@ fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds")) %>%
 # mp shock identifiers
 mp_id <- c("ff4_tc", "mp1_tc", "resid_full", "BRW_monthly",
            "MM_IV1", "MM_IV5", "u1", "Shock", "MPS",
-           "MPS_ORTH", "MP1")
+           "MPS_ORTH", "MP1", "MP_median")
 
 # names of papers shocks taken from
 mp_type <- c("GK15a", "GK15b", "RR04", "BRW21", "MAR21a", "MAR21b",
-             "Jaro22", "AD22", "BS22a", "BS22b", "GSS22")
+             "Jaro22", "AD22", "BS22a", "BS22b", "GSS22", "JK20")
 
 # remove variables with too few obs when starting in 2003/08
 # rm_ix <- c(3,5,6,8)
@@ -52,10 +52,10 @@ dl <- mp_id %>%
                               # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
                               filter(complete.cases(.), date >= ym(199401), date<ym(201401)) %>%
                               dplyr::select(-date) %>% 
-                              mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)))
+                              mutate(across(!MPR, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals))))
 
 # standardise data and save sd's for later analysis
-data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~.x/sd(.x))),
+data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~(.x - mean(.x))/sd(.x))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
                     mp_type)
 # save data
