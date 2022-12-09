@@ -3,8 +3,12 @@
 # ----------------------------- #
 
 # Packages ####
+install.packages(pkgs = "/proj/juhokois/sim_news/svarmawhf_0.1.0.tar.gz", 
+                 lib = "/proj/juhokois/R/", 
+                 repos = NULL, 
+                 type = "source")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
-pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "svars", "fitdistrplus", "sgt", "tidyverse")
+pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
 # Arguments from Rscript call: Parameters from SLURM script ####
