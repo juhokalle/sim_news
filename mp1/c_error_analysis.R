@@ -2,12 +2,12 @@ pkgs = c("tidyverse")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221024")
+               JOBID = "20221118")
 
 
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
-vec_files %>% head
+vec_files %>% tail
 
 tibble_list = vector("list", length(vec_files))
 
@@ -51,11 +51,9 @@ for (ix_file in seq_along(vec_files)){
     unnest_longer(v,indices_to = "ix") %>% 
     mutate(ix = ix*2) %>% 
     unnest_wider(v, names_sep = "_") %>% 
-    select(-v_NM) %>%
-    mutate(adhoc_check  = map_lgl(v_BFGS, ~length(.x)==5)) %>%
-    filter(adhoc_check) %>% 
+    select(-v_NM) %>% 
     unnest_wider(v_BFGS, names_sep = "_") %>% 
-    select(-contains("v_BFGS_msg"), -adhoc_check) %>% 
+    select(-contains("v_BFGS_msg")) %>% 
     rename(convergence = v_BFGS_convergence,
            theta = v_BFGS_theta,
            value_laplace = v_BFGS_value_laplace,
@@ -111,8 +109,6 @@ for (ix_file in seq_along(vec_files)){
     mutate(ix = 1 + ix*2+2*length(file_this[[1]]$results_list$gaussian)) %>% 
     unnest_wider(v, names_sep = "_") %>% 
     select(-v_NM) %>% 
-    mutate(adhoc_check  = map_lgl(v_BFGS, ~length(.x)==5)) %>%
-    filter(adhoc_check) %>% 
     unnest_wider(v_BFGS, names_sep = "_") %>% 
     select(-contains("v_BFGS_msg")) %>% 
     rename(convergence = v_BFGS_convergence,
@@ -196,9 +192,10 @@ for (ix_file in seq_along(vec_files)){
               hlp_sgt_NM) %>% 
     group_by(nr) %>% 
     arrange(ix, .by_group = TRUE)
+  
 }
 
-tt_full = reduce(tibble_list, bind_rows) 
+tt_full = reduce(tibble_list, bind_rows)
 
 tt_full %>% 
   pull(convergence) %>% table()
