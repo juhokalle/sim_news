@@ -88,7 +88,7 @@ tt =
   mutate(n_st = DIM_OUT * q - n_unst) %>% 
   mutate(kappa = n_unst %/% DIM_OUT,
          k = n_unst %% DIM_OUT) %>% 
-  # assume correct specification
+  # assume correct specification w.r.t. MA polm
   filter(n_unst==1) %>% 
   # VAR models
   bind_rows(expand_grid(p=4:12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
@@ -133,7 +133,8 @@ if (!dir.exists(new_dir_path)){
   dir.create(new_dir_path)
 }
 
-saveRDS(mods_parallel_list, paste0(new_dir_path, "/arrayjob_", 
-                                   if(params$IX_ARRAY_JOB<10) "00" else if(params$IX_ARRAY_JOB<100) "0",
-                                   params$IX_ARRAY_JOB,".rds"), 
+saveRDS(mods_parallel_list, 
+        paste0(new_dir_path, "/arrayjob_", 
+               if(params$IX_ARRAY_JOB<10) "00" else if(params$IX_ARRAY_JOB<100) "0",
+               params$IX_ARRAY_JOB,".rds"), 
         version = 3)

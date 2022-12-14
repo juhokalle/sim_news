@@ -7,10 +7,10 @@
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-127
+#SBATCH --array=1-125
 
-N_MODS_PER_CORE=3
-MANUALLY_ASSIGNED_ID=20221123
+N_MODS_PER_CORE=15
+MANUALLY_ASSIGNED_ID=20221215
 SRUN_CPUS_PER_TASK=16
 
 module use /appl/modulefiles/all/ #loads all mds

@@ -2,7 +2,7 @@ pkgs = c("tidyverse")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221118")
+               JOBID = "20221210")
 
 
 vec_files = list.files(paste0(params$PATH, params$JOBID))
@@ -152,8 +152,8 @@ for (ix_file in seq_along(vec_files)){
     mutate(ix = 1+ix*2+2*(length(file_this[[1]]$results_list$gaussian) + length(file_this[[1]]$results_list$laplace))) %>% 
     unnest_wider(v, names_sep = "_") %>% 
     select(-v_NM) %>% 
+    mutate(v_BFGS = map(v_BFGS, ~ .x[!names(.x)%in%"msg"])) %>% 
     unnest_wider(v_BFGS, names_sep = "_") %>% 
-    select(-contains("v_BFGS_msg")) %>% 
     rename(convergence = v_BFGS_convergence,
            theta = v_BFGS_theta,
            value_laplace = v_BFGS_value_laplace,
@@ -228,3 +228,10 @@ tt_full %>%
   arrange(desc(p_plus_q)) %>% 
   pull(ix) %>% table()
 
+tt_full %>% 
+  ungroup() %>% 
+  filter(convergence == 2) %>% 
+  mutate(count_gaussian = grepl("gaussian", est),
+         count_laplace = grepl("laplace", est),
+         count_sgt = grepl("sgt", est)) %>% 
+  summarise(across(contains("count"), ~sum(.x)))

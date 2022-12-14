@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221118")
+               JOBID = "20221210")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, norm_int, norm_pos=dim(irf_arr)[1], norm_scm = c("surp", "news"))
@@ -177,8 +177,8 @@ get_fevd <- function (irf_arr)
 sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    folder = "/proj/juhokois/sim_news/local_data/",
                    username = "juhokois",
-                   password = "***") -> scnx
-sftp::sftp_download(file = "jobid_20221118.zip",
+                   password = "securitasLOKKIv4lvoo") -> scnx
+sftp::sftp_download(file = "jobid_20221210.zip",
                     tofolder = "/local_data/",
                     sftp_connection = scnx)
 sftp::sftp_download(file = "total_data.rds",
@@ -190,8 +190,8 @@ SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
   
 tt_full <- tibble()
-for (ix_file in seq_along(vec_files))
-{
+for (ix_file in seq_along(vec_files)){
+  
   file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
                              vec_files[ix_file]))
   
@@ -308,16 +308,16 @@ tt %>%
   pivot_wider(names_from = mp_type, values_from = n) %>% 
   arrange(p_plus_q)
 
-tt %>% filter(mp_type=="JK20") %>% 
+tt %>%
   filter(norm_indep_flag==0) %>% 
   arrange(value_bic)
 
-tbl0 <- tt %>% filter(nr == 5904) %>% 
+tbl0 <- tt %>% filter(nr == 2002) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
-  filter("JK20"%in%tbl0$mp_type) %>%
+  filter("BS22b"%in%tbl0$mp_type) %>%
   pull(std_dev) %>% .[[1]] %>%  diag
 
 irf_out <- sd_mat %r% tbl0$irf[[1]]
