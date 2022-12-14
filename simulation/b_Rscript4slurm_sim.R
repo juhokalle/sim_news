@@ -16,10 +16,11 @@ pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "g
 }
 
 hlp_parallel = function(list_input){
-  return(create_results_list(theta_init = list_input[[1]], 
-                             tmpl       = list_input[[2]],
-                             params     = params, 
-                             DATASET    = list_input[[3]]))
+  return(create_results_list(theta_init   = list_input[[1]], 
+                             tmpl         = list_input[[2]],
+                             params       = params, 
+                             DATASET      = list_input[[3]],
+                             fix_lambda_p = TRUE))
 }
 
 # Parameters from Rmarkdown
