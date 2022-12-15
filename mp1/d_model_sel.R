@@ -177,7 +177,7 @@ get_fevd <- function (irf_arr)
 sftp::sftp_connect(server = "turso.cs.helsinki.fi",
                    folder = "/proj/juhokois/sim_news/local_data/",
                    username = "juhokois",
-                   password = "securitasLOKKIv4lvoo") -> scnx
+                   password = "***") -> scnx
 sftp::sftp_download(file = "jobid_20221210.zip",
                     tofolder = "/local_data/",
                     sftp_connection = scnx)
