@@ -2,7 +2,7 @@ pkgs = c("tidyverse")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221210")
+               JOBID = "20221216")
 
 
 vec_files = list.files(paste0(params$PATH, params$JOBID))
@@ -161,7 +161,7 @@ for (ix_file in seq_along(vec_files)){
            value_sgt = v_BFGS_value)
   
   hlp_sgt_NM =
-    enframe(file_this) %>% 
+    enframe(file_this) %>%
     rename(nr = name) %>% 
     mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
     unnest_wider(value) %>%
@@ -174,6 +174,7 @@ for (ix_file in seq_along(vec_files)){
     mutate(ix = 2+ix*2+2*(length(file_this[[1]]$results_list$gaussian) + length(file_this[[1]]$results_list$laplace))) %>% 
     unnest_wider(v, names_sep = "_") %>% 
     select(-v_BFGS) %>% 
+    mutate(v_NM = map(v_NM, ~ .x[!names(.x)%in%"msg"])) %>% 
     unnest_wider(v_NM, names_sep = "_") %>% 
     rename(convergence = v_NM_convergence,
            theta = v_NM_theta,

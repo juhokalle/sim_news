@@ -28,29 +28,23 @@ fred_md <- list(fred_md, readRDS("local_data/shock_tbl.rds")) %>%
   reduce(left_join, by = "date")
 
 # mp shock identifiers
-mp_id <- c("ff4_tc", "mp1_tc", "resid_full", "BRW_monthly",
-           "MM_IV1", "MM_IV5", "u1", "Shock", "MPS",
+mp_id <- c("mp1_tc", "BRW_monthly", "u1", 
            "MPS_ORTH", "MP1", "MP_median")
 
 # names of papers shocks taken from
-mp_type <- c("GK15a", "GK15b", "RR04", "BRW21", "MAR21a", "MAR21b",
-             "Jaro22", "AD22", "BS22a", "BS22b", "GSS22", "JK20")
-
-# remove variables with too few obs when starting in 2003/08
-# rm_ix <- c(3,5,6,8)
-# mp_id <- mp_id[-rm_ix]
-# mp_type <- mp_type[-rm_ix]
+mp_type <- c("GK15", "BRW21", "Jaro22", 
+             "BS22", "GSS22", "JK20")
 
 # choose baseline variables
 dl <- length(mp_id) %>% 
-  replicate(fred_md %>% dplyr::select(date, LIP, LCPI, EBP, FEDFUNDS) %>% list)
+  replicate(fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS) %>% list)
 
 # sample span, and linear detrending
 dl <- mp_id %>% 
   lapply(function(x) mutate(dl[[which(mp_id %in% x)]] %>%
                               mutate(fred_md %>% dplyr::select(all_of(x)) %>% rename(MPR = all_of(x))) %>% 
                               # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
-                              filter(complete.cases(.), date >= ym(199401), date<ym(201401)) %>%
+                              filter(complete.cases(.), date >= ym(199401), date<=ym(201206)) %>%
                               dplyr::select(-date) %>% 
                               mutate(across(!MPR, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals))))
 
@@ -60,4 +54,3 @@ data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~(.x - m
                     mp_type)
 # save data
 saveRDS(data_list, "local_data/svarma_data_list.rds")
-

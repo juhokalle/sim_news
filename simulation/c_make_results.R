@@ -6,7 +6,16 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221123")
+               JOBID = "20221215")
+
+# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+#                    folder = "/proj/juhokois/sim_news/local_data/",
+#                    username = "juhokois",
+#                    password = "***") -> scnx
+# sftp::sftp_download(file = "jobid_20221215.zip",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
+
 n_ahead <- 8
 # functions for the analysi
 get_llf <- function(p, q, kappa, k, dtype)
@@ -71,7 +80,6 @@ ff <- function(x, zero_ix, input_mat)
   sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
 }
 
-
 optim_zr <- function(input_mat, zr_ix, opt_it = TRUE)
 {
   n_var <- dim(input_mat)[1]
@@ -128,7 +136,7 @@ get_rest_irf <- function(tbl_slice, rest_ix)
   return(list(irf = irf_out, pval = pval, rmat = rmat))
 }
 
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "sgt", ...)
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "tdist", ...)
 {
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
 }
@@ -370,7 +378,6 @@ ggsave(filename = "./paper_output/sim_plt_d.pdf",
        plot1[[4]],
        width = 7.5,
        height = 5)
-
 ggsave(filename = "./paper_output/appendix1.pdf",
        gridExtra::marrangeGrob(plot2, nrow = 2, ncol = 2, top = NULL),
        width = 7.5,

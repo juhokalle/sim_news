@@ -20,7 +20,8 @@ hlp_parallel = function(list_input){
                              tmpl         = list_input[[2]],
                              params       = params, 
                              DATASET      = list_input[[3]],
-                             fix_lambda_p = TRUE))
+                             shock_distr  = "tdist")
+         )
 }
 
 # Parameters from Rmarkdown

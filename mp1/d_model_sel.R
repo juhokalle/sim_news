@@ -147,7 +147,7 @@ get_rest_irf <- function(tbl_slice, ...)
   return(list(irf = irf_out, pval = pval, rmat = opt_obj$rmat))
 }
 
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "sgt", ...)
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "tdist", ...)
 {
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
 }
@@ -174,22 +174,23 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-                   folder = "/proj/juhokois/sim_news/local_data/",
-                   username = "juhokois",
-                   password = "***") -> scnx
-sftp::sftp_download(file = "jobid_20221210.zip",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
-sftp::sftp_download(file = "total_data.rds",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
+# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+#                    folder = "/proj/juhokois/sim_news/local_data/",
+#                    username = "juhokois",
+#                    password = "***") -> scnx
+# sftp::sftp_download(file = "jobid_20221210.zip",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
+# sftp::sftp_download(file = "total_data.rds",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
   
-tt_full <- tibble()
+tibble_list <- vector("list", length(vec_files))
+TOTAL_DATA <- readRDS("local_data/total_data.rds")
 for (ix_file in seq_along(vec_files)){
   
   file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
@@ -200,7 +201,7 @@ for (ix_file in seq_along(vec_files)){
   IX_ARRAY_JOB_this = SCRIPT_PARAMS_this$IX_ARRAY_JOB
   N_MODS_this = with(SCRIPT_PARAMS_this, N_MODS_PER_CORE * N_CORES)
   
-  tt_full =  
+  tibble_list[[ix_file]] =  
     enframe(file_this) %>% 
     rename(nr = name) %>% 
     mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
@@ -209,7 +210,7 @@ for (ix_file in seq_along(vec_files)){
     select(nr, params_deep_final, value_final, input_integerparams) %>% 
     mutate(n_params = map_int(params_deep_final, length)) %>% 
     unnest_wider(input_integerparams) %>% 
-    mutate(readRDS("local_data/total_data.rds") %>% slice(nr)) %>% 
+    mutate(TOTAL_DATA %>% slice(nr)) %>% 
     mutate(nobs = map_dbl(data_list, ~nrow(.x))) %>% 
     mutate(punish_aic = n_params * 2/nobs) %>% 
     mutate(punish_bic = n_params * log(nobs)/nobs) %>% 
@@ -221,15 +222,13 @@ for (ix_file in seq_along(vec_files)){
                         ~fill_tmpl_whf_rev(theta = .x, 
                                            tmpl = .y)$B)) %>% 
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, mp_type, B_mat, shocks, params_deep_final) %>% 
-    bind_rows(tt_full)
+    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, mp_type, B_mat, shocks, params_deep_final)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
 
-#saveRDS(tt_full, "local_data/results_total_20221122.rds")
-#tt_full <- readRDS("local_data/results_199401_201312.rds")
+tt_full = reduce(tibble_list, bind_rows)
 tt = tt_full %>% 
   mutate(rk_aic = rank(value_aic),
          rk_bic = rank(value_bic),
@@ -302,7 +301,7 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>%
-  filter(nobs==240) %>% 
+  filter(nobs==222) %>% 
   group_by(mp_type, p_plus_q) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = mp_type, values_from = n) %>% 
@@ -317,13 +316,13 @@ tbl0 <- tt %>% filter(nr == 2002) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
-  filter("BS22b"%in%tbl0$mp_type) %>%
+  filter("GK15b"%in%tbl0$mp_type) %>%
   pull(std_dev) %>% .[[1]] %>%  diag
 
 irf_out <- sd_mat %r% tbl0$irf[[1]]
 
 irf_bs <- map2(.x = list(irf_out[,4,,drop=FALSE],
-                         irf_out[,5,,drop=FALSE]),
+                         irf_out[,1,,drop=FALSE]),
                 .y = c("news", "surp"), 
                 ~norm_irf(irf_arr = .x, norm_scm = .y, norm_pos = 4, norm_int = 0.25)) %>%
   reduce(abind::abind, along=2)

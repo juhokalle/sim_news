@@ -3,12 +3,9 @@
 # ----------------------------- #
 
 # Packages ####
-install.packages(pkgs = "/proj/juhokois/sim_news/svarmawhf_0.1.0.tar.gz", 
-                 lib = "/proj/juhokois/R/", 
-                 repos = NULL, 
-                 type = "source")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
-pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "fitdistrplus", "sgt", "tidyverse")
+pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "mixtools", 
+          "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
 # Arguments from Rscript call: Parameters from SLURM script ####
@@ -23,7 +20,8 @@ hlp_parallel = function(list_input){
   return(create_results_list(theta_init = list_input[[1]], 
                              tmpl       = list_input[[2]],
                              params     = params, 
-                             DATASET    = list_input[[3]]))
+                             DATASET    = list_input[[3]],
+                             shock_distr = list_input[[4]]))
 }
 
 # Parameters from Rmarkdown
@@ -40,8 +38,8 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rds"
 
-params$AR_ORDER_MAX = 5
-params$MA_ORDER_MAX = 5
+params$AR_ORDER_MAX = 3
+params$MA_ORDER_MAX = 3
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
@@ -96,7 +94,7 @@ tt =
          k = n_unst %% DIM_OUT) %>% 
   # Estimate SVAR for comparison 
   bind_rows(tibble(p = (params$AR_ORDER_MAX+1):12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
-  expand_grid(DATASET)
+  expand_grid(DATASET, shock_distr = c("tdist", "sgt", "mixture"))
 
 if(params$IX_ARRAY_JOB==1){
   saveRDS(tt, file = paste0(params$PATH_RESULTS_HELPER, "total_data.rds"))
@@ -109,7 +107,7 @@ tt_optim_parallel = tt %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
-  select(theta_init, tmpl, data_list)
+  select(theta_init, tmpl, data_list, shock_distr)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])
