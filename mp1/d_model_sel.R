@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221210")
+               JOBID = "20221229")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, norm_int, norm_pos=dim(irf_arr)[1], norm_scm = c("surp", "news"))
@@ -50,6 +50,81 @@ plot_irf <- function(irf_arr, var_name, shock_name){
           panel.background = element_blank(),
           strip.background = element_blank(),
           axis.line = element_line(colour = "black"))
+}
+
+get_stats_tbl <- function(x){
+  nvar <- ncol(x)
+  res <- list()
+  for(j in 1:nvar){
+    sw_test <- shapiro.test(x[,j])
+    jb_test <- tsoutliers::JarqueBera.test(x[,j])
+    lb_lvl <- Box.test(x[,j], lag = 24, type = "Ljung-Box")
+    lb_abs <- Box.test(abs(x[,j]), lag = 24, type = "Ljung-Box")
+    lb_sq <- Box.test(x[,j]^2, lag = 24, type = "Ljung-Box")
+    res[[j]] <- c(sw_test$statistic,
+                  sw_test$p.value,
+                  jb_test[[1]]$statistic,
+                  jb_test[[1]]$p.value, 
+                  lb_lvl$statistic,
+                  lb_lvl$p.value, 
+                  lb_abs$statistic, 
+                  lb_abs$p.value,
+                  lb_sq$statistic,
+                  lb_sq$p.value) %>% round(3)
+    res[[j]][!1:length(res[[j]])%%2] <- paste0("(", res[[j]][!1:length(res[[j]])%%2], ")")
+  }
+  res <- reduce(res, cbind)
+  rownames(res) <- c("SW-test", "", "JB-test", "",
+                     "LB 1", "", 
+                     "LB 2", "",
+                     "LB 3", "")
+  res_ltx <- xtable::xtable(res)
+  res_ltx
+}
+
+get_cor_tbl <- function(x){
+  comb_i <- combn(ncol(x),2)
+  l_corr <- cor(x, method = "pearson") %>% round(3)
+  r_corr <- cor(x, method = "spearman") %>% round(3)
+  for(j in 1:ncol(comb_i)){
+    
+    l_corr[comb_i[2, j], comb_i[1, j]] <- paste0("(", 
+                                                 cor.test(x[, comb_i[1,j]], 
+                                                          x[, comb_i[2,j]], 
+                                                          method = "pearson")$p.value %>% round(3),
+                                                 ")")
+    r_corr[comb_i[2, j], comb_i[1, j]] <- paste0("(",
+                                                 cor.test(x[, comb_i[1,j]], 
+                                                          x[, comb_i[2,j]], 
+                                                          method = "spearman")$p.value %>% round(3),
+                                                 ")")
+    
+  }
+  xtable::xtable(cbind(l_corr, r_corr))
+}
+
+get_qqplots <- function(x){
+  plot_list <- list()
+  for(j in 1:ncol(x)){
+    df <- data.frame(y = x[,j])
+    p <- ggplot(df, aes(sample = y))
+    p <- p + 
+      stat_qq() + 
+      stat_qq_line() +
+      ylab("") +
+      xlab("") +
+      if(j==1){
+        ggtitle(bquote(epsilon[1]))
+      } else if (j==2){
+        ggtitle(bquote(epsilon[2]))
+      } else if (j==3){
+        ggtitle(bquote(epsilon[3]))
+      } else if (j==4){
+        ggtitle(bquote(epsilon[4]))
+      }
+    plot_list[[j]] <- p + theme(plot.title = element_text(hjust = 0.5))
+  }
+  plot_list
 }
 
 get_llf <- function(p, q, kappa, k, dtype)
@@ -178,7 +253,7 @@ get_fevd <- function (irf_arr)
 #                    folder = "/proj/juhokois/sim_news/local_data/",
 #                    username = "juhokois",
 #                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20221210.zip",
+# sftp::sftp_download(file = "jobid_20221229.zip",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
 # sftp::sftp_download(file = "total_data.rds",
@@ -222,7 +297,7 @@ for (ix_file in seq_along(vec_files)){
                         ~fill_tmpl_whf_rev(theta = .x, 
                                            tmpl = .y)$B)) %>% 
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, mp_type, B_mat, shocks, params_deep_final)
+    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, mp_type, sd, B_mat, shocks, params_deep_final)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
@@ -301,34 +376,43 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>%
-  filter(nobs==222) %>% 
-  group_by(mp_type, p_plus_q) %>%
+  group_by(mp_type, p_plus_q, sd) %>%
   summarise(n=n()) %>% 
-  pivot_wider(names_from = mp_type, values_from = n) %>% 
+  pivot_wider(names_from = sd, values_from = n) %>% 
   arrange(p_plus_q)
 
 tt %>%
-  filter(norm_indep_flag==0) %>% 
-  arrange(value_bic)
+  filter(norm_indep_flag==0, mp_type=="GSS22", sd == "tdist") %>%
+  arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr == 2002) %>% 
+tbl0 <- tt %>% filter(nr == 1093) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
-  filter("GK15b"%in%tbl0$mp_type) %>%
+  filter("GSS22"%in%tbl0$mp_type) %>%
   pull(std_dev) %>% .[[1]] %>%  diag
 
-irf_out <- sd_mat %r% tbl0$irf[[1]]
+get_fevd(sd_mat%r%tbl0$irf[[1]] %>% unclass)[[3]][seq(1,49,by=12),]
 
-irf_bs <- map2(.x = list(irf_out[,4,,drop=FALSE],
-                         irf_out[,1,,drop=FALSE]),
-                .y = c("news", "surp"), 
-                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_pos = 4, norm_int = 0.25)) %>%
+irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))%r%diag(c(1,1,-1,1))
+
+irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
+                         irf_out[,3,,drop=FALSE]),
+                .y = c("FG", "MP"), 
+                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_pos = 3, norm_int = .1)) %>%
   reduce(abind::abind, along=2)
 
-irf_bs[c(1:2,4),,] %>%
-  plot_irf(var_name = c("LogIP", "LogCPI", "FFR"),
-           shock_name = c("News", "Surprise")) -> p1
+irf_bs %>%
+  plot_irf(var_name = c("IP", "CPI", "FFR", "MPR"),
+           shock_name = c("Forward guidance", "Monetary policy")) -> p1
 
 ggsave(filename = "paper_output/IRF1.pdf", plot = p1)
+
+
+tt %>% filter(mp_type=="GSS22", p==2, q==1, n_unst==0, sd=="sgt") %>%
+  dplyr::select(p,q,n_unst,value_final,value_aic,value_bic) %>% 
+  xtable::xtable()
+
+
+
