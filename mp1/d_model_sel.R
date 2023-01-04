@@ -9,7 +9,10 @@ params <- list(PATH = "local_data/jobid_",
                JOBID = "20221229")
 
 # functions for the analysis
-norm_irf <- function(irf_arr, norm_int, norm_pos=dim(irf_arr)[1], norm_scm = c("surp", "news"))
+norm_irf <- function(irf_arr, 
+                     norm_int, 
+                     norm_pos=dim(irf_arr)[1], 
+                     norm_scm = c("surp", "news"))
 {
   
   if(norm_scm=="surp"){
@@ -382,12 +385,14 @@ tt %>%
   arrange(p_plus_q)
 
 tt %>%
-  filter(norm_indep_flag==0, mp_type=="GSS22", sd == "tdist") %>%
+  filter(norm_indep_flag==0, mp_type=="GSS22", sd == "sgt") %>%
   arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr == 1093) %>% 
+tbl0 <- tt %>% filter(nr %in% c(1093, 1094)) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
+
+saveRDS(tbl0, "./local_data/target_model.rds")
 
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
   filter("GSS22"%in%tbl0$mp_type) %>%

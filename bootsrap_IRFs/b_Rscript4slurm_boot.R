@@ -82,12 +82,11 @@ tt =
   # the chosen model:
   tibble(p = 2, q = 1, kappa = 1, k = 0, n_st = 0, n_unst = 4) %>% 
   # this way of including data makes it convenient for slicing
-  expand_grid(DATASET, sd = c("sgt", "tdist"))
+  expand_grid(DATASET)
 
 if(params$IX_ARRAY_JOB==1){
   saveRDS(tt, file = paste0(params$PATH_RESULTS_HELPER, "total_data_boot.rds"))
 }
-
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
