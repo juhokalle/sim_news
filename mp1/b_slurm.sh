@@ -3,15 +3,15 @@
 #SBATCH -N 1
 #SBATCH -p short
 #SBATCH -t 02:00:00
-#SBATCH -c 16
+#SBATCH -c 8
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-135
+#SBATCH --array=1-81
 
 N_MODS_PER_CORE=1
-MANUALLY_ASSIGNED_ID=20221229
-SRUN_CPUS_PER_TASK=16
+MANUALLY_ASSIGNED_ID=20230701
+SRUN_CPUS_PER_TASK=8
 
 module use /appl/modulefiles/all/ #loads all mds
 module load R/4.2.1
