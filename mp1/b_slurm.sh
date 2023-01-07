@@ -7,7 +7,7 @@
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-81
+#SBATCH --array=1-68
 
 N_MODS_PER_CORE=1
 MANUALLY_ASSIGNED_ID=20230701

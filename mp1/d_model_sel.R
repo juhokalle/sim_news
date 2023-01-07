@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221229")
+               JOBID = "20230107")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -256,7 +256,7 @@ get_fevd <- function (irf_arr)
 #                    folder = "/proj/juhokois/sim_news/local_data/",
 #                    username = "juhokois",
 #                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20221229.zip",
+# sftp::sftp_download(file = "jobid_20230701.zip",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
 # sftp::sftp_download(file = "total_data.rds",
@@ -268,7 +268,10 @@ SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
   
 tibble_list <- vector("list", length(vec_files))
-TOTAL_DATA <- readRDS("local_data/total_data.rds")
+TOTAL_DATA <- readRDS("local_data/total_data.rds") %>% 
+  filter(p %in% 0:2 & q %in% 0:2 | p>2 & q==0) %>% 
+  filter(sd%in%c("tdist","sgt"))
+
 for (ix_file in seq_along(vec_files)){
   
   file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
