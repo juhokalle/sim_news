@@ -2,7 +2,7 @@ pkgs = c("tidyverse")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221216")
+               JOBID = "20230107")
 
 
 vec_files = list.files(paste0(params$PATH, params$JOBID))

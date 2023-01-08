@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230107")
+               JOBID = "20230701")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -268,9 +268,7 @@ SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
   
 tibble_list <- vector("list", length(vec_files))
-TOTAL_DATA <- readRDS("local_data/total_data.rds") %>% 
-  filter(p %in% 0:2 & q %in% 0:2 | p>2 & q==0) %>% 
-  filter(sd%in%c("tdist","sgt"))
+TOTAL_DATA <- readRDS("local_data/total_data.rds")
 
 for (ix_file in seq_along(vec_files)){
   
@@ -381,29 +379,29 @@ tt %>% pull(norm_indep_flag) %>% table
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==0) %>%
+  filter(norm_indep_flag==1) %>%
   group_by(mp_type, p_plus_q, sd) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = sd, values_from = n) %>% 
   arrange(p_plus_q)
 
 tt %>%
-  filter(norm_indep_flag==0, mp_type=="GSS22", sd == "sgt") %>%
+  filter(norm_indep_flag==1, mp_type=="JK20") %>%
   arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr %in% c(1093, 1094)) %>% 
+tbl0 <- tt %>% filter(nr %in% 440) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
-saveRDS(tbl0, "./local_data/target_model.rds")
+#saveRDS(tbl0, "./local_data/target_model.rds")
 
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
-  filter("GSS22"%in%tbl0$mp_type) %>%
+  filter(mp_type == "JK20") %>%
   pull(std_dev) %>% .[[1]] %>%  diag
 
-get_fevd(sd_mat%r%tbl0$irf[[1]] %>% unclass)[[3]][seq(1,49,by=12),]
+irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
+get_fevd(irf_out %>% unclass)[[3]][seq(1,49,by=12),]
 
-irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))%r%diag(c(1,1,-1,1))
 
 irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
                          irf_out[,3,,drop=FALSE]),

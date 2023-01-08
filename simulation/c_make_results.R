@@ -163,11 +163,12 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-choose_perm_sign <- function(target_mat, cand_mat)
+choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs"))
 {
-  nvar <- ncol(target_mat)
-  sign_ix <- replicate(nvar, list(c(-1,1))) %>% expand.grid
-  perm_ix <- replicate(nvar, list(1:nvar)) %>% 
+  nvar <- ncol(cand_mat)
+  sign_ix <- nvar %>% replicate(list(c(-1,1))) %>% expand.grid
+  perm_ix <- nvar %>% 
+    replicate(list(1:nvar)) %>% 
     expand.grid %>% 
     filter(apply(., 1, n_distinct)==nvar)
   cr0 <- 1e25
@@ -175,7 +176,11 @@ choose_perm_sign <- function(target_mat, cand_mat)
     for(jj in 1:nrow(perm_ix)){
       rt_mat <- diag(sign_ix[j, ]) %*% diag(nvar)[, unlist(perm_ix[jj, ])]
       x1 <- cand_mat %*% rt_mat
-      cr1 <- norm(target_mat - x1, "F")
+      if(type=="frob"){
+        cr1 <- norm(target_mat - x1, "F")
+      } else if(type=="dg_abs"){
+        cr1 <- if(all(diag(x1)>0)) -abs(prod(diag(x1))) else 1e25
+      }
       if(cr0 > cr1){
         x_opt <- x1
         rt_opt <- rt_mat
@@ -185,6 +190,7 @@ choose_perm_sign <- function(target_mat, cand_mat)
   }
   return(list(x_opt, rt_opt))
 }
+
 
 sim_comparison <- function(irf_arr, shock_ix, qntl, prms)
 {
@@ -299,7 +305,11 @@ tt_opt <- tt_full %>%
   slice_min(value_aic) %>% 
   ungroup() %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_ahead)))
+  #mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_ahead)))
+  #mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_unique(.x, .y, lag.max=n_ahead)))
+  mutate(rmat = map(.x = B_mat, ~ choose_perm_sign(cand_mat = .x, type = "dg_abs")[[2]])) %>% 
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(theta = .x, tmpl = .y, n_lags = n_ahead))) %>% 
+  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y))
 
 mc_n <- unique(tt_opt$mc_ix)
 prms <- expand.grid(beta = unique(tt_opt$beta), nu = unique(tt_opt$nu))
