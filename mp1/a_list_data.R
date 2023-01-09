@@ -41,14 +41,14 @@ mp_id <- c("u1", "BRW_monthly", "MPS_ORTH", "MP1", "MP_median")
 mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20")
 
 # choose baseline variables
-baseline_data <- list(fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS), 
+baseline_data <- list(#fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS), 
                       fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS_A))
 dl <- length(mp_id) %>% 
   replicate(baseline_data, simplify = FALSE) %>% 
   unlist(recursive = FALSE)
 
 # sample span, and linear detrending
-dl <- rep(mp_id, 2) %>% 
+dl <- mp_id %>% 
   lapply(function(x) mutate(dl[[which(mp_id %in% x)]] %>%
                               mutate(fred_md %>% dplyr::select(all_of(x)) %>% rename(MPR = all_of(x))) %>% 
                               # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
@@ -59,7 +59,7 @@ dl <- rep(mp_id, 2) %>%
 # standardise data and save sd's for later analysis
 data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~(.x - mean(.x))/sd(.x))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
-                    mp_type = rep(mp_type,2),
-                    ffr = rep(c("ffr", "wx"), length(mp_id)))
+                    mp_type)
+                    #ffr = rep(c("ffr", "wx"), length(mp_id)))
 # save data
 saveRDS(data_list, "local_data/svarma_data_list.rds")

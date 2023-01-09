@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230701")
+               JOBID = "20230108")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -252,16 +252,16 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-#                    folder = "/proj/juhokois/sim_news/local_data/",
-#                    username = "juhokois",
-#                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20230701.zip",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
-# sftp::sftp_download(file = "total_data.rds",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
+sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+                   folder = "/proj/juhokois/sim_news/local_data/",
+                   username = "juhokois",
+                   password = "***") -> scnx
+sftp::sftp_download(file = "jobid_20230108.zip",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
+sftp::sftp_download(file = "jobid_20230801",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
@@ -380,23 +380,22 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==1) %>%
-  group_by(mp_type, p_plus_q, sd) %>%
+  group_by(mp_type, sd) %>%
   summarise(n=n()) %>% 
-  pivot_wider(names_from = sd, values_from = n) %>% 
-  arrange(p_plus_q)
+  pivot_wider(names_from = sd, values_from = n)
 
 tt %>%
-  filter(norm_indep_flag==1, mp_type=="JK20") %>%
+  filter(norm_indep_flag==1, mp_type=="BS22", sd == "tdist") %>%
   arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr %in% 440) %>% 
+tbl0 <- tt %>% filter(nr %in% 1315) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
 #saveRDS(tbl0, "./local_data/target_model.rds")
 
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
-  filter(mp_type == "JK20") %>%
+  filter(mp_type == "BS22") %>%
   pull(std_dev) %>% .[[1]] %>%  diag
 
 irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
