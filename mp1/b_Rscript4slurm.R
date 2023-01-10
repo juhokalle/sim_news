@@ -38,26 +38,26 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rds"
 
-params$AR_ORDER_MAX = 2
-params$MA_ORDER_MAX = 2
+params$AR_ORDER_MAX = 3
+params$MA_ORDER_MAX = 3
 
-params$IT_OPTIM_GAUSS = 6
+params$IT_OPTIM_GAUSS = 4
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
-params$MAXIT_BFGS_GAUSS = 200
-params$MAXIT_NM_GAUSS = 5000
+params$MAXIT_BFGS_GAUSS = 100
+params$MAXIT_NM_GAUSS = 2000
 
-params$IT_OPTIM_LAPLACE = 6
+params$IT_OPTIM_LAPLACE = 4
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
-params$MAXIT_BFGS_LAPLACE = 200 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 5000 # default for NM is 500
+params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
+params$MAXIT_NM_LAPLACE = 2000 # default for NM is 500
 
-params$IT_OPTIM_SGT = 6
+params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 200 # default for derivative based methods
-params$MAXIT_NM_SGT = 5000 # default for NM is 500
+params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
+params$MAXIT_NM_SGT = 2000 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 

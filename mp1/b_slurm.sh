@@ -2,14 +2,14 @@
 #SBATCH --job-name=mp_svarma0
 #SBATCH -N 1
 #SBATCH -p short
-#SBATCH -t 0:30:00
+#SBATCH -t 01:00:00
 #SBATCH -c 16
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-75
+#SBATCH --array=1-45
 
-N_MODS_PER_CORE=1
+N_MODS_PER_CORE=4
 MANUALLY_ASSIGNED_ID=20230110
 SRUN_CPUS_PER_TASK=16
 

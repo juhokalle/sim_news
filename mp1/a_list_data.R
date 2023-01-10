@@ -31,8 +31,8 @@ wx_rate$date <- seq(lubridate::ym(196001), by ="month", length.out = nrow(wx_rat
 fred_md <- list(fred_md, wx_rate, readRDS("local_data/shock_tbl.rds")) %>% 
   reduce(left_join, by = "date")
 fred_md$FEDFUNDS_A = fred_md$FEDFUNDS
-fred_md$FEDFUNDS_A[fred_md$date %in% seq(ym(200812), ym(201512), by = "month")] <- 
-  wx_rate$wx_rate[wx_rate$date %in% seq(ym(200812), ym(201512), by = "month")]
+zlb <- seq(ym(200812), ym(201512), by = "month")
+fred_md$FEDFUNDS_A[fred_md$date %in% zlb] <- wx_rate$wx_rate[wx_rate$date %in% zlb]
 
 # mp shock identifiers
 mp_id <- c("u1", "BRW_monthly", "MPS_ORTH", "MP1", "MP_median", "mp1_tc")
@@ -41,29 +41,36 @@ mp_id <- c("u1", "BRW_monthly", "MPS_ORTH", "MP1", "MP_median", "mp1_tc")
 mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20", "GK15")
 
 # choose baseline variables
-baseline_data <- list(fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS)
-                      #fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS_A)
+baseline_data <- list(fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS) %>% 
+                        filter(date >= ym(199401),
+                               date<=ym(201206)) %>%
+                        mutate(across(!date, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)),
+                      fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS) %>% 
+                        filter(date >= ym(199401),
+                               date<=ym(201206)) %>%
+                        mutate(across(!date, ~ lm(.x ~ I(1:n())) %>% residuals))
                       )
-dl <- length(mp_id) %>% 
-  replicate(baseline_data, simplify = FALSE) %>% 
+dl <- replicate(length(mp_id), baseline_data, simplify = FALSE) %>% 
   unlist(recursive = FALSE)
 
 # sample span, and linear detrending
-dl <- mp_id %>% 
-  lapply(function(x) mutate(dl[[which(mp_id %in% x)]] %>%
-                              mutate(fred_md %>% dplyr::select(all_of(x)) %>% rename(MPR = all_of(x))) %>% 
-                              # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
-                              filter(complete.cases(.), 
-                                     date >= ym(199401),
-                                     date<=ym(201206)) %>%
-                              dplyr::select(-date) %>% 
-                              mutate(across(!MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
+qq <- outer(mp_id, letters[1:2], paste, sep ="_") %>% t %>% c
+dl <- map(qq, ~ mutate(dl[[which(qq %in% .x)]] %>%
+                         inner_join(fred_md %>% 
+                                      dplyr::select(date, all_of(gsub('.{2}$', '', .x))) %>% 
+                                      rename(MPR = all_of(gsub('.{2}$', '', .x))),
+                                    by="date")  %>% 
+                         mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
+                         filter(complete.cases(.)) %>% 
+                         dplyr::select(-date) %>% 
+                         mutate(across(MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
+                              #mutate(across(!MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
                               #mutate(across(!MPR, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals))))
 
 # standardise data and save sd's for later analysis
 data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~(.x - mean(.x))/sd(.x))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
-                    mp_type)
-                    #ffr = rep(c("ffr", "wx"), length(mp_id)))
+                    mp_type = rep(mp_type, each = 2),
+                    log_level = rep(c(TRUE, FALSE), length(mp_id)))
 # save data
 saveRDS(data_list, "local_data/svarma_data_list.rds")

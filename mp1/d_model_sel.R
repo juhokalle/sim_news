@@ -103,7 +103,7 @@ get_cor_tbl <- function(x){
                                                  ")")
     
   }
-  xtable::xtable(cbind(l_corr, r_corr))
+  list(noquote(cbind(l_corr, r_corr)), xtable::xtable(cbind(l_corr, r_corr)))
 }
 
 get_qqplots <- function(x){
@@ -379,27 +379,31 @@ tt %>% pull(norm_indep_flag) %>% table
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==1) %>%
+  filter(norm_indep_flag==0) %>%
   group_by(mp_type, sd) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = sd, values_from = n)
 
 tt %>%
-  filter(norm_indep_flag==1, mp_type=="BS22", sd == "tdist") %>%
+  filter(norm_indep_flag==0, mp_type=="Jaro22", sd == "tdist") %>%
   arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr %in% 1015) %>% 
+n_ahead <- 96
+tbl0 <- tt %>% filter(nr %in% 541) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead)))
 
 #saveRDS(tbl0, "./local_data/target_model.rds")
 
+irf_out <- rmfd4dfm:::cum_irf(tbl0$irf[[1]] %>% unclass, c(5,5,1,1)) %>% 
+  pseries(n_ahead)
+
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
-  filter(mp_type == "BS22") %>%
+  filter(mp_type == "Jaro22") %>%
   pull(std_dev) %>% .[[1]] %>%  diag
 
-irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
-get_fevd(irf_out %>% unclass)[[3]][seq(1,49,by=12),]
+irf_out <- sd_mat%r%irf_out%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
+get_fevd(irf_out %>% unclass)[[3]][seq(1,96,by=24),]
 
 
 irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
