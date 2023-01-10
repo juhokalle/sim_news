@@ -42,7 +42,7 @@ mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20")
 
 # choose baseline variables
 baseline_data <- list(#fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS), 
-                      fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS_A))
+                      fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS_A))
 dl <- length(mp_id) %>% 
   replicate(baseline_data, simplify = FALSE) %>% 
   unlist(recursive = FALSE)
@@ -52,9 +52,12 @@ dl <- mp_id %>%
   lapply(function(x) mutate(dl[[which(mp_id %in% x)]] %>%
                               mutate(fred_md %>% dplyr::select(all_of(x)) %>% rename(MPR = all_of(x))) %>% 
                               # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
-                              filter(complete.cases(.), date >= ym(199401), date<=ym(201906)) %>%
+                              filter(complete.cases(.), 
+                                     date >= ym(199401),
+                                     date<=ym(201906)) %>%
                               dplyr::select(-date) %>% 
-                              mutate(across(!MPR, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals))))
+                              mutate(across(!MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
+                              #mutate(across(!MPR, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals))))
 
 # standardise data and save sd's for later analysis
 data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~(.x - mean(.x))/sd(.x))),

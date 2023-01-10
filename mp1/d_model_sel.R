@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230108")
+               JOBID = "20230109")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -252,16 +252,16 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-                   folder = "/proj/juhokois/sim_news/local_data/",
-                   username = "juhokois",
-                   password = "***") -> scnx
-sftp::sftp_download(file = "jobid_20230108.zip",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
-sftp::sftp_download(file = "jobid_20230801",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
+# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+#                    folder = "/proj/juhokois/sim_news/local_data/",
+#                    username = "juhokois",
+#                    password = "***") -> scnx
+# sftp::sftp_download(file = "jobid_20230901.zip",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
+# sftp::sftp_download(file = "jobid_20230801",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
@@ -388,7 +388,7 @@ tt %>%
   filter(norm_indep_flag==1, mp_type=="BS22", sd == "tdist") %>%
   arrange(value_aic)
 
-tbl0 <- tt %>% filter(nr %in% 1315) %>% 
+tbl0 <- tt %>% filter(nr %in% 1015) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48)))
 
@@ -418,6 +418,3 @@ ggsave(filename = "paper_output/IRF1.pdf", plot = p1)
 tt %>% filter(mp_type=="GSS22", p==2, q==1, n_unst==0, sd=="sgt") %>%
   dplyr::select(p,q,n_unst,value_final,value_aic,value_bic) %>% 
   xtable::xtable()
-
-
-
