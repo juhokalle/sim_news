@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230109")
+               JOBID = "20230110")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -252,13 +252,13 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-#                    folder = "/proj/juhokois/sim_news/local_data/",
-#                    username = "juhokois",
-#                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20230901.zip",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
+sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+                   folder = "/proj/juhokois/sim_news/local_data/",
+                   username = "juhokois",
+                   password = "***") -> scnx
+sftp::sftp_download(file = "jobid_20230110.zip",
+                    tofolder = "/local_data/",
+                    sftp_connection = scnx)
 # sftp::sftp_download(file = "jobid_20230801",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)

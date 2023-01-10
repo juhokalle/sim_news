@@ -35,14 +35,15 @@ fred_md$FEDFUNDS_A[fred_md$date %in% seq(ym(200812), ym(201512), by = "month")] 
   wx_rate$wx_rate[wx_rate$date %in% seq(ym(200812), ym(201512), by = "month")]
 
 # mp shock identifiers
-mp_id <- c("u1", "BRW_monthly", "MPS_ORTH", "MP1", "MP_median")
+mp_id <- c("u1", "BRW_monthly", "MPS_ORTH", "MP1", "MP_median", "mp1_tc")
 
 # names of papers shocks taken from
-mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20")
+mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20", "GK15")
 
 # choose baseline variables
-baseline_data <- list(#fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS), 
-                      fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS_A))
+baseline_data <- list(fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS)
+                      #fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS_A)
+                      )
 dl <- length(mp_id) %>% 
   replicate(baseline_data, simplify = FALSE) %>% 
   unlist(recursive = FALSE)
@@ -54,7 +55,7 @@ dl <- mp_id %>%
                               # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
                               filter(complete.cases(.), 
                                      date >= ym(199401),
-                                     date<=ym(201906)) %>%
+                                     date<=ym(201206)) %>%
                               dplyr::select(-date) %>% 
                               mutate(across(!MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
                               #mutate(across(!MPR, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals))))
