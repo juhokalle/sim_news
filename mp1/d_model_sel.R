@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230110")
+               JOBID = "20230111")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -130,7 +130,7 @@ get_qqplots <- function(x){
   plot_list
 }
 
-get_llf <- function(p, q, kappa, k, dtype)
+get_llf <- function(p, q, kappa, k, dtype, sd)
 {
   total_data <- readRDS("local_data/total_data.rds")
   data_i <- total_data %>% 
@@ -143,7 +143,7 @@ get_llf <- function(p, q, kappa, k, dtype)
                          kappa = kappa,
                          k = k,
                          shock_distr = "sgt")
-  ll_whf_factory(data_wide = t(data_i), tmpl = tmpl_i, shock_distr = "sgt")
+  ll_whf_factory(data_wide = t(data_i), tmpl = tmpl_i, shock_distr = sd)
   
 }
 
@@ -214,7 +214,10 @@ get_rest_irf <- function(tbl_slice, ...)
   irf_out <- sd_mat %r% tbl_slice$irf[[1]]
   
   opt_obj <- optim_zr(irf_out[,,1], ...)
-  llf0 <- do.call(get_llf, tbl_slice %>% select(p, q, kappa, k, mp_type) %>% rename(dtype = mp_type))
+  llf0 <- do.call(get_llf, tbl_slice %>% 
+                    select(p, q, kappa, k, mp_type, sd) %>% 
+                    rename(dtype = mp_type)
+                  )
   params0 <- tbl_slice$params_deep_final[[1]]
   
   params0[tbl_slice$params_deep_final[[1]] %in% tbl_slice$B_mat[[1]]] <- c(tbl0$B_mat[[1]]%*%opt_obj$rmat)
@@ -252,13 +255,13 @@ get_fevd <- function (irf_arr)
   return(fe2)
 }
 
-sftp::sftp_connect(server = "turso.cs.helsinki.fi",
-                   folder = "/proj/juhokois/sim_news/local_data/",
-                   username = "juhokois",
-                   password = "***") -> scnx
-sftp::sftp_download(file = "jobid_20230110.zip",
-                    tofolder = "/local_data/",
-                    sftp_connection = scnx)
+# sftp::sftp_connect(server = "turso.cs.helsinki.fi",
+#                    folder = "/proj/juhokois/sim_news/local_data/",
+#                    username = "juhokois",
+#                    password = "***") -> scnx
+# sftp::sftp_download(file = "jobid_20230110.zip",
+#                     tofolder = "/local_data/",
+#                     sftp_connection = scnx)
 # sftp::sftp_download(file = "jobid_20230801",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
@@ -268,7 +271,7 @@ SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
   
 tibble_list <- vector("list", length(vec_files))
-TOTAL_DATA <- readRDS("local_data/total_data.rds")
+TOTAL_DATA <- readRDS(paste0(params$PATH, params$JOBID, "/total_data.rds"))
 
 for (ix_file in seq_along(vec_files)){
   
@@ -301,7 +304,9 @@ for (ix_file in seq_along(vec_files)){
                         ~fill_tmpl_whf_rev(theta = .x, 
                                            tmpl = .y)$B)) %>% 
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, mp_type, sd, B_mat, shocks, params_deep_final)
+    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, 
+           value_bic, nobs, mp_type, sd, log_level, 
+           B_mat, shocks, params_deep_final)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
@@ -380,31 +385,30 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>%
-  group_by(mp_type, sd) %>%
+  group_by(mp_type, sd, log_level) %>%
   summarise(n=n()) %>% 
-  pivot_wider(names_from = sd, values_from = n)
+  pivot_wider(names_from = log_level, values_from = n)
 
 tt %>%
-  filter(norm_indep_flag==0, mp_type=="Jaro22", sd == "tdist") %>%
-  arrange(value_aic)
+  filter(log_level, norm_indep_flag==0, 
+         mp_type=="GK15", sd == "sgt") %>%
+  arrange(value_bic)
 
-n_ahead <- 96
-tbl0 <- tt %>% filter(nr %in% 541) %>% 
+n_ahead <- 48
+tbl0 <- tt %>% filter(nr %in% 2278) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead)))
 
 #saveRDS(tbl0, "./local_data/target_model.rds")
-
-irf_out <- rmfd4dfm:::cum_irf(tbl0$irf[[1]] %>% unclass, c(5,5,1,1)) %>% 
-  pseries(n_ahead)
-
-sd_mat <- readRDS("local_data/svarma_data_list.rds") %>% 
-  filter(mp_type == "Jaro22") %>%
+sd_mat <- readRDS("local_data/svarma_data_list.rds") %>%
+  filter(mp_type%in%tbl0$mp_type) %>%
   pull(std_dev) %>% .[[1]] %>%  diag
+irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
 
-irf_out <- sd_mat%r%irf_out%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
-get_fevd(irf_out %>% unclass)[[3]][seq(1,96,by=24),]
+get_fevd(irf_out %>% unclass)[[3]][seq(1,n_ahead+1, by=12),]
+get_fevd(irf_out %>% unclass)[[4]][seq(1,n_ahead+1, by=12),]
 
+irf_out <- irf_out%r%diag(c(1,1,-1,1))
 
 irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
                          irf_out[,3,,drop=FALSE]),
@@ -412,9 +416,9 @@ irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
                 ~norm_irf(irf_arr = .x, norm_scm = .y, norm_pos = 3, norm_int = .1)) %>%
   reduce(abind::abind, along=2)
 
-irf_bs %>%
+irf_out[,c(3,4),,drop=FALSE] %>%
   plot_irf(var_name = c("IP", "CPI", "FFR", "MPR"),
-           shock_name = c("Forward guidance", "Monetary policy")) -> p1
+           shock_name = c("Monetary policy", "Forward guidance")) -> p1
 
 ggsave(filename = "paper_output/IRF1.pdf", plot = p1)
 

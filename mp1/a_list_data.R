@@ -43,18 +43,19 @@ mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20", "GK15")
 # choose baseline variables
 baseline_data <- list(fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS) %>% 
                         filter(date >= ym(199401),
-                               date<=ym(201206)) %>%
-                        mutate(across(!date, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals)),
+                               date<=ym(201206)),
+                      fred_md %>% dplyr::select(date, LIP, PI, FEDFUNDS) %>% 
+                        filter(date >= ym(199401),
+                               date<=ym(201206)),
                       fred_md %>% dplyr::select(date, DLIP, DLCPI, FEDFUNDS) %>% 
                         filter(date >= ym(199401),
-                               date<=ym(201206)) %>%
-                        mutate(across(!date, ~ lm(.x ~ I(1:n())) %>% residuals))
+                               date<=ym(201206))
                       )
 dl <- replicate(length(mp_id), baseline_data, simplify = FALSE) %>% 
   unlist(recursive = FALSE)
 
 # sample span, and linear detrending
-qq <- outer(mp_id, letters[1:2], paste, sep ="_") %>% t %>% c
+qq <- outer(mp_id, letters[1:3], paste, sep ="_") %>% t %>% c
 dl <- map(qq, ~ mutate(dl[[which(qq %in% .x)]] %>%
                          inner_join(fred_md %>% 
                                       dplyr::select(date, all_of(gsub('.{2}$', '', .x))) %>% 
@@ -62,15 +63,13 @@ dl <- map(qq, ~ mutate(dl[[which(qq %in% .x)]] %>%
                                     by="date")  %>% 
                          mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
                          filter(complete.cases(.)) %>% 
-                         dplyr::select(-date) %>% 
-                         mutate(across(MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
-                              #mutate(across(!MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
-                              #mutate(across(!MPR, ~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals))))
+                         dplyr::select(-date)))
+                         # mutate(across(MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
 
 # standardise data and save sd's for later analysis
 data_list <- tibble(data_list = lapply(dl, function(x) x %>% mutate_all(~(.x - mean(.x))/sd(.x))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
-                    mp_type = rep(mp_type, each = 2),
-                    log_level = rep(c(TRUE, FALSE), length(mp_id)))
+                    mp_type = rep(mp_type, each = 3),
+                    log_level = rep(c("all", "pi", "none"), length(mp_id)))
 # save data
 saveRDS(data_list, "local_data/svarma_data_list.rds")
