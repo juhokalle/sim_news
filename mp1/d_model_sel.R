@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230111")
+               JOBID = "20230113")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -390,16 +390,16 @@ tt %>%
   pivot_wider(names_from = log_level, values_from = n)
 
 tt %>%
-  filter(log_level, norm_indep_flag==0, 
-         mp_type=="GK15", sd == "sgt") %>%
+  filter(log_level=="pi", norm_indep_flag==0, 
+         mp_type=="BS22", sd == "sgt") %>%
   arrange(value_bic)
 
 n_ahead <- 48
-tbl0 <- tt %>% filter(nr %in% 2278) %>% 
+tbl0 <- tt %>% filter(nr %in% c(3327,3328)) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead)))
 
-#saveRDS(tbl0, "./local_data/target_model.rds")
+saveRDS(tbl0, "./local_data/target_model.rds")
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>%
   filter(mp_type%in%tbl0$mp_type) %>%
   pull(std_dev) %>% .[[1]] %>%  diag
@@ -408,7 +408,7 @@ irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
 get_fevd(irf_out %>% unclass)[[3]][seq(1,n_ahead+1, by=12),]
 get_fevd(irf_out %>% unclass)[[4]][seq(1,n_ahead+1, by=12),]
 
-irf_out <- irf_out%r%diag(c(1,1,-1,1))
+irf_out <- irf_out%r%diag(c(-1,1,1,1))
 
 irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
                          irf_out[,3,,drop=FALSE]),

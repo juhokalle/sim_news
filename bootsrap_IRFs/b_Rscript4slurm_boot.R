@@ -4,8 +4,8 @@
 
 # Packages ####
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
-pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "mixtools", 
-          "fitdistrplus", "sgt", "tidyverse")
+pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", 
+          "mixtools", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
 # Arguments from Rscript call: Parameters from SLURM script ####
@@ -39,23 +39,23 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/data_list_boot.rds"
 
-params$IT_OPTIM_GAUSS = 3
+params$IT_OPTIM_GAUSS = 4
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
-params$MAXIT_BFGS_GAUSS = 80
-params$MAXIT_NM_GAUSS = 3000
+params$MAXIT_BFGS_GAUSS = 100
+params$MAXIT_NM_GAUSS = 2000
 
-params$IT_OPTIM_LAPLACE = 3
+params$IT_OPTIM_LAPLACE = 4
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
+params$MAXIT_NM_LAPLACE = 2000 # default for NM is 500
 
 params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
-params$MAXIT_NM_SGT = 3000 # default for NM is 500
+params$MAXIT_NM_SGT = 2000 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
@@ -80,7 +80,7 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt =
   # the chosen model:
-  tibble(p = 2, q = 1, kappa = 1, k = 0, n_st = 0, n_unst = 4) %>% 
+  tibble(p = 3, q = 2, kappa = 0, k = 3, n_st = 5, n_unst = 3) %>% 
   # this way of including data makes it convenient for slicing
   expand_grid(DATASET)
 

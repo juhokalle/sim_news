@@ -37,8 +37,8 @@ mb_boot <- function(y, prms, tmpl, b.length=10, nboot=500){
   return(ystar)
 }
 
-ds <- readRDS("./local_data/total_data.rds") %>% 
-  filter(mp_type == "GSS22") %>% 
+ds <- readRDS("./local_data/jobid_20230113/total_data.rds") %>% 
+  filter(mp_type == "BS22", log_level =="pi") %>% 
   pull(data_list) %>% .[[1]]
 
 tbl0 <- readRDS("./local_data/target_model.rds")
@@ -55,7 +55,7 @@ dl <- lapply(arg_list, function(x) do.call(mb_boot, x)) %>%
   unlist(recursive = FALSE)
 
 # standardize data for estimation
-data_list <- tibble(data_list = lapply(dl, function(x) scale(x)),
+data_list <- tibble(data_list = lapply(dl, function(x) apply(x, 2, function(xx) (xx-mean(xx))/sd(xx))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
                     sd = rep(c("tdist", "sgt"), each = 1000))
 
