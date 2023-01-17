@@ -391,15 +391,15 @@ tt %>%
 
 tt %>%
   filter(log_level=="pi", norm_indep_flag==0, 
-         mp_type=="BS22", sd == "sgt") %>%
+         mp_type=="GSS22", sd == "sgt") %>%
   arrange(value_bic)
 
 n_ahead <- 48
-tbl0 <- tt %>% filter(nr %in% c(3327,3328)) %>% 
+tbl0 <- tt %>% filter(nr %in% 3298) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead)))
 
-saveRDS(tbl0, "./local_data/target_model.rds")
+#saveRDS(tbl0, "./local_data/target_model.rds")
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>%
   filter(mp_type%in%tbl0$mp_type) %>%
   pull(std_dev) %>% .[[1]] %>%  diag
@@ -421,8 +421,3 @@ irf_out[,c(3,4),,drop=FALSE] %>%
            shock_name = c("Monetary policy", "Forward guidance")) -> p1
 
 ggsave(filename = "paper_output/IRF1.pdf", plot = p1)
-
-
-tt %>% filter(mp_type=="GSS22", p==2, q==1, n_unst==0, sd=="sgt") %>%
-  dplyr::select(p,q,n_unst,value_final,value_aic,value_bic) %>% 
-  xtable::xtable()

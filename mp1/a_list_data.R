@@ -61,7 +61,7 @@ dl <- map(qq, ~ mutate(dl[[which(qq %in% .x)]] %>%
                                       dplyr::select(date, all_of(gsub('.{2}$', '', .x))) %>% 
                                       rename(MPR = all_of(gsub('.{2}$', '', .x))),
                                     by="date")  %>% 
-                         mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
+                         #mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>% 
                          filter(complete.cases(.)) %>% 
                          dplyr::select(-date)))
                          # mutate(across(MPR, ~ lm(.x ~ I(1:n())) %>% residuals))))
