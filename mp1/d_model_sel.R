@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230113")
+               JOBID = "20230119")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -228,7 +228,7 @@ get_rest_irf <- function(tbl_slice, ...)
   return(list(irf = irf_out, pval = pval, rmat = opt_obj$rmat))
 }
 
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "tdist", ...)
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr, ...)
 {
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
 }
@@ -259,10 +259,7 @@ get_fevd <- function (irf_arr)
 #                    folder = "/proj/juhokois/sim_news/local_data/",
 #                    username = "juhokois",
 #                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20230110.zip",
-#                     tofolder = "/local_data/",
-#                     sftp_connection = scnx)
-# sftp::sftp_download(file = "jobid_20230801",
+# sftp::sftp_download(file = "jobid_20230118.zip",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
@@ -298,6 +295,7 @@ for (ix_file in seq_along(vec_files)){
     mutate(punish_bic = n_params * log(nobs)/nobs) %>% 
     mutate(value_aic = value_final + punish_aic) %>% 
     mutate(value_bic = value_final + punish_bic) %>% 
+    rename(shock_distr=sd) %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
     mutate(res = pmap(., pmap_get_residuals_once)) %>% 
     mutate(B_mat = map2(params_deep_final, tmpl, 
@@ -305,8 +303,8 @@ for (ix_file in seq_along(vec_files)){
                                            tmpl = .y)$B)) %>% 
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
     select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, 
-           value_bic, nobs, mp_type, sd, log_level, 
-           B_mat, shocks, params_deep_final)
+           value_bic, nobs, mp_type, shock_distr, log_level, 
+           B_mat, shocks, params_deep_final, tmpl)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
@@ -385,25 +383,28 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>%
-  group_by(mp_type, sd, log_level) %>%
+  group_by(mp_type, shock_distr, log_level) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = log_level, values_from = n)
 
 tt %>%
-  filter(log_level=="pi", norm_indep_flag==0, 
-         mp_type=="GSS22", sd == "sgt") %>%
+  filter(log_level=="pi",
+         norm_indep_flag==0, 
+         shock_distr == "tdist") %>%
   arrange(value_bic)
 
 n_ahead <- 48
-tbl0 <- tt %>% filter(nr %in% 3298) %>% 
+tbl0 <- tt %>% filter(nr %in% 3472) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead)))
 
 #saveRDS(tbl0, "./local_data/target_model.rds")
 sd_mat <- readRDS("local_data/svarma_data_list.rds") %>%
-  filter(mp_type%in%tbl0$mp_type) %>%
+  filter(mp_type%in%tbl0$mp_type,
+         log_level=="pi") %>%
   pull(std_dev) %>% .[[1]] %>%  diag
 irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
+
 
 get_fevd(irf_out %>% unclass)[[3]][seq(1,n_ahead+1, by=12),]
 get_fevd(irf_out %>% unclass)[[4]][seq(1,n_ahead+1, by=12),]

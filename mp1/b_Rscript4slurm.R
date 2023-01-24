@@ -12,7 +12,7 @@ void = lapply(pkgs, library, character.only = TRUE)
 args = commandArgs(trailingOnly=TRUE)
 params = list()
 # Helper functions ####
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr, ...){
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "gaussian", ...){
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
 }
 
@@ -38,22 +38,24 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rds"
 
+params$RESTART_W_NOISE = 0
+
 params$AR_ORDER_MAX = 3
 params$MA_ORDER_MAX = 3
 
-params$IT_OPTIM_GAUSS = 6
+params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
 params$MAXIT_BFGS_GAUSS = 500
 params$MAXIT_NM_GAUSS = 5000
 
-params$IT_OPTIM_LAPLACE = 6
+params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
 params$MAXIT_NM_LAPLACE = 5000 # default for NM is 500
 
-params$IT_OPTIM_SGT = 6
+params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$MAXIT_BFGS_SGT = 500 # default for derivative based methods
@@ -94,7 +96,7 @@ tt =
          k = n_unst %% DIM_OUT) %>% 
   # Estimate SVAR for comparison 
   bind_rows(tibble(p = (params$AR_ORDER_MAX+1):12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
-  expand_grid(DATASET, shock_distr = c("tdist", "sgt"))
+  expand_grid(DATASET, sd = c("tdist", "gt", "skewed_ged", "sgt"))
 
 if(params$IX_ARRAY_JOB==1){
   saveRDS(tt, file = paste0(params$PATH_RESULTS_HELPER, "total_data.rds"))
@@ -107,7 +109,7 @@ tt_optim_parallel = tt %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
-  select(theta_init, tmpl, data_list, shock_distr)
+  select(theta_init, tmpl, data_list, sd)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])

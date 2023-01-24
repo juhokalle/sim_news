@@ -2,7 +2,7 @@ pkgs = c("tidyverse")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230107")
+               JOBID = "20230119")
 
 
 vec_files = list.files(paste0(params$PATH, params$JOBID))
@@ -211,7 +211,7 @@ tt_full %>%
   slice(1, .preserve = 4) %>% 
   ungroup() %>% 
   unnest_wider(input_integerparams) %>% 
-  arrange(desc(p), desc(q))
+  arrange(!desc(p), desc(q))
 
 tt_full %>% 
   group_by(nr, input_integerparams) %>% 
