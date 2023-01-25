@@ -98,7 +98,6 @@ tt =
   bind_rows(tibble(p = (params$AR_ORDER_MAX+1):12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   expand_grid(DATASET, sd = c("tdist", "gt", "skewed_ged", "sgt"))
 
-
 pap = pap_factory(params$PATH_RESULTS_HELPER)
 
 # New directory for saving all
@@ -109,8 +108,7 @@ if (!dir.exists(new_dir_path)){
 }
 
 if(params$IX_ARRAY_JOB==1){
-  saveRDS(tt, file = paste0(params$PATH_RESULTS_HELPER,
-                            new_dir_path, "/total_data.rds"))
+  saveRDS(tt, file = paste0(new_dir_path, "/total_data.rds"))
 }
 
 # Parallel setup ####

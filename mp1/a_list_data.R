@@ -42,10 +42,10 @@ mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20")
 
 # choose baseline variables
 baseline_data <- replicate(n = 4,
-                           list(fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS) %>% 
+                           list(fred_md %>% dplyr::select(date, LIP, LCPI, WX) %>% 
                                   filter(date >= ym(199401),
                                          date<=ym(201912)),
-                                fred_md %>% dplyr::select(date, LIP, PI, FEDFUNDS) %>% 
+                                fred_md %>% dplyr::select(date, LIP, PI, WX) %>% 
                                   filter(date >= ym(199401),
                                          date<=ym(201912))
                                 ),
