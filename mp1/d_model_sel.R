@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230124")
+               JOBID = "20230125")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -21,6 +21,34 @@ norm_irf <- function(irf_arr,
     irf_arr <- irf_arr[,1,,drop=FALSE]/max(irf_arr[norm_pos,1,])*norm_int
   }
   irf_arr
+}
+
+choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs"))
+{
+  nvar <- ncol(cand_mat)
+  sign_ix <- nvar %>% replicate(list(c(-1,1))) %>% expand.grid
+  perm_ix <- nvar %>% 
+    replicate(list(1:nvar)) %>% 
+    expand.grid %>% 
+    filter(apply(., 1, n_distinct)==nvar)
+  cr0 <- 1e25
+  for(j in 1:nrow(sign_ix)){
+    for(jj in 1:nrow(perm_ix)){
+      rt_mat <- diag(sign_ix[j, ]) %*% diag(nvar)[, unlist(perm_ix[jj, ])]
+      x1 <- cand_mat %*% rt_mat
+      if(type=="frob"){
+        cr1 <- norm(target_mat - x1, "F")
+      } else if(type=="dg_abs"){
+        cr1 <- if(all(diag(x1)>0)) -abs(prod(diag(x1))) else 1e25
+      }
+      if(cr0 > cr1){
+        x_opt <- x1
+        rt_opt <- rt_mat
+        cr0 <- cr1
+      }
+    }
+  }
+  return(list(x_opt, rt_opt))
 }
 
 plot_irf <- function(irf_arr, var_name, shock_name){
@@ -266,7 +294,7 @@ get_fevd <- function (irf_arr, int_var = NULL, by_arg=NULL)
 #                    folder = "/proj/juhokois/sim_news/local_data/",
 #                    username = "juhokois",
 #                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20230118.zip",
+# sftp::sftp_download(file = "jobid_20230125.zip",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
@@ -309,9 +337,9 @@ for (ix_file in seq_along(vec_files)){
                         ~fill_tmpl_whf_rev(theta = .x, 
                                            tmpl = .y)$B)) %>% 
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, 
-           value_bic, nobs, mp_type, shock_distr, log_level, 
-           B_mat, shocks, params_deep_final, tmpl)
+    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, 
+           mp_type, shock_distr, smpl_s, mpr_lvl, log_level, 
+           B_mat, shocks, res, params_deep_final, tmpl)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
     #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
@@ -390,24 +418,57 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>%
-  group_by(mp_type, shock_distr, log_level) %>%
+  group_by(mp_type, smpl_s, log_level, mpr_lvl) %>%
   summarise(n=n()) %>% 
-  pivot_wider(names_from = shock_distr, values_from = n)
+  pivot_wider(names_from = mp_type, values_from = n)
 
-tt %>%
-  filter(norm_indep_flag==0,
-         mp_type=="BS22", 
-         log_level=="all") %>% 
+irf_arr <- tt %>%
+  # Filter models according to some criteria
+  filter(norm_indep_flag==0, 
+         !mpr_lvl, 
+         log_level,
+         mp_type=="Jaro22") %>% 
+  # Merge data
+  mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>%
+  # Save position of structural impact matrix
+  mutate(aux_ix = map2(.x = params_deep_final, .y = B_mat, ~ .x%in%c(.y))) %>%
+  # Calculate unique rotation for the B matrix
+  mutate(B_mat = map(.x = B_mat, ~ choose_perm_sign(target_mat = NULL, cand_mat = .x, type = "dg_abs")[[1]])) %>%
+  # Replace old vector of B matrix values with the rotated ones
+  mutate(params_deep_final = pmap(list(x = params_deep_final, y = aux_ix, z = B_mat), function(x,y,z) replace(x, y, c(z)))) %>% 
+  # Calculate unique irf
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48))) %>%
+  # Shocks, also rotated now appropriately
+  mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
+  # Shock covariance
+  mutate(Sigma = map(.x = shocks, ~ cov(.x))) %>% 
+  # Normalize to one std dev shocks
+  mutate(irf = map2(.x = irf, .y = Sigma, ~ .x%r%diag(diag(.y)^-.5))) %>% 
+  # Finally multiply the irf by the resp. std devs to get units in the original scale
+  mutate(irf = map2(.x = std_dev, .y = irf, ~  diag(.x)%r%.y)) %>%
+  # save FEVD for obtaining boot-CI's, this can be time consuming
+  mutate(ffr_fevd = map(.x = irf, ~ get_fevd(.x, int_var = 3, by_arg = 12))) %>% 
   arrange(value_bic)
+
+for(j in 1:nrow(irf_arr)){
+  irf_arr %>% slice(j) %>% pull(irf) %>% .[[1]] %>% plot
+}
+
+irf_tot <- irf_arr %>% 
+  mutate(irf = map(.x = irf, ~ unclass(.x))) %>% 
+  pull(irf) %>% 
+  abind::abind(along=4)
+
+irf_md <- apply(irf_tot, c(1,2,3), mean)
 
 n_ahead <- 48
 tbl0 <- tt %>% 
-  filter(nr %in% 1465) %>% 
+  filter(nr %in% 10817) %>% 
   mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead))) %>% 
-  mutate(irf = map2(.x = irf, .y = std_dev, ~ diag(.y)%r%.x)) %>% 
-  mutate(irf = map2(.x = irf, .y = shocks, ~ .x%r%diag(diag(var(.y)))))
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, lag.max = n_ahead))) %>% 
+  mutate(irf = map2(.x = irf, .y = std_dev, ~ diag(.y)%r%.x)) #%>% 
+  #mutate(irf = map2(.x = irf, .y = shocks, ~ .x%r%diag(diag(var(.y)))))
 
 get_fevd(tbl0$irf[[1]], int_var = 3, by_arg = 12)
 get_fevd(tbl0$irf[[1]], int_var = 4, by_arg = 12)
