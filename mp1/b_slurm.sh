@@ -2,15 +2,15 @@
 #SBATCH --job-name=mp_svarma0
 #SBATCH -N 1
 #SBATCH -p short
-#SBATCH -t 02:00:00
+#SBATCH -t 01:00:00
 #SBATCH -c 16
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-108
+#SBATCH --array=1-200
 
-N_MODS_PER_CORE=5
-MANUALLY_ASSIGNED_ID=20230123
+N_MODS_PER_CORE=6
+MANUALLY_ASSIGNED_ID=20230125
 SRUN_CPUS_PER_TASK=16
 
 module use /appl/modulefiles/all/ #loads all mds

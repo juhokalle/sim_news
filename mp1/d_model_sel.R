@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230119")
+               JOBID = "20230124")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -238,19 +238,26 @@ pmap_get_residuals_once = function(params_deep_final, tmpl, data_list, ...)
   get_residuals_once(params_deep = params_deep_final, tmpl = tmpl, data_long = data_list)
 }
 
-get_fevd <- function (irf_arr)
+get_fevd <- function (irf_arr, int_var = NULL, by_arg=NULL)
 {
+  irf_arr <- unclass(irf_arr)
   nvar <- dim(irf_arr)[1]
   n.ahead <- dim(irf_arr)[3]
   fe <- list()
-  for (i in 1:nvar) {
-    fe[[i]] <- as.data.frame(t(irf_arr[i, , ]))
+  if(is.null(int_var)){
+    for (i in 1:nvar) {
+      fe[[i]] <- as.data.frame(t(irf_arr[i, , ]))
+    }
+  } else{
+    fe[[1]] <- as.data.frame(t(irf_arr[int_var, , ]))
   }
   fe2 <- fe
+  seq_grid <- if(!is.null(by_arg)) seq(1,n.ahead, by = by_arg) else 1:n.ahead
   for (i in 1:length(fe)) {
-    for (j in 1:n.ahead) {
+    for (j in seq_grid) {
       fe2[[i]][j, ] <- (colSums(fe[[i]][j:1, ]^2)/sum(fe[[i]][j:1, ]^2)) * 100
     }
+    fe2[[i]] <- fe2[[i]][seq_grid,]
   }
   return(fe2)
 }
@@ -385,29 +392,26 @@ tt %>%
   filter(norm_indep_flag==0) %>%
   group_by(mp_type, shock_distr, log_level) %>%
   summarise(n=n()) %>% 
-  pivot_wider(names_from = log_level, values_from = n)
+  pivot_wider(names_from = shock_distr, values_from = n)
 
 tt %>%
-  filter(log_level=="pi",
-         norm_indep_flag==0, 
-         shock_distr == "tdist") %>%
+  filter(norm_indep_flag==0,
+         mp_type=="BS22", 
+         log_level=="all") %>% 
   arrange(value_bic)
 
 n_ahead <- 48
-tbl0 <- tt %>% filter(nr %in% 3472) %>% 
+tbl0 <- tt %>% 
+  filter(nr %in% 1465) %>% 
+  mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead)))
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = n_ahead))) %>% 
+  mutate(irf = map2(.x = irf, .y = std_dev, ~ diag(.y)%r%.x)) %>% 
+  mutate(irf = map2(.x = irf, .y = shocks, ~ .x%r%diag(diag(var(.y)))))
 
-#saveRDS(tbl0, "./local_data/target_model.rds")
-sd_mat <- readRDS("local_data/svarma_data_list.rds") %>%
-  filter(mp_type%in%tbl0$mp_type,
-         log_level=="pi") %>%
-  pull(std_dev) %>% .[[1]] %>%  diag
-irf_out <- sd_mat%r%tbl0$irf[[1]]%r%diag(sqrt(diag(var(tbl0$shocks[[1]])^-1)))
-
-
-get_fevd(irf_out %>% unclass)[[3]][seq(1,n_ahead+1, by=12),]
-get_fevd(irf_out %>% unclass)[[4]][seq(1,n_ahead+1, by=12),]
+get_fevd(tbl0$irf[[1]], int_var = 3, by_arg = 12)
+get_fevd(tbl0$irf[[1]], int_var = 4, by_arg = 12)
+plot(tbl0$irf[[1]])
 
 irf_out <- irf_out%r%diag(c(-1,1,1,1))
 
