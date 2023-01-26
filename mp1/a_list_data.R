@@ -16,7 +16,7 @@ fred_md <- fredmd("http://files.stlouisfed.org/files/htdocs/fred-md/monthly/curr
          PI = c(rep(NA, 12), diff(LCPI, 12)),
          DLCPI = c(NA, diff(LCPI)),
          DLIP = c(NA, diff(LIP)),
-         `S&P 500` = 100*log(`S&P 500`)) %>% 
+         SP500 = 100*log(`S&P 500`)) %>% 
   filter(date>ym(197212))
 
 # download ebp
@@ -42,10 +42,10 @@ mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20")
 
 # choose baseline variables
 baseline_data <- replicate(n = 4,
-                           list(fred_md %>% dplyr::select(date, LIP, LCPI, WX, EBP) %>% 
+                           list(fred_md %>% dplyr::select(date, LIP, LCPI, WX, SP500) %>% 
                                   filter(date >= ym(199401),
                                          date<=ym(201912)),
-                                fred_md %>% dplyr::select(date, LIP, PI, WX, EBP) %>% 
+                                fred_md %>% dplyr::select(date, LIP, PI, WX, SP500) %>% 
                                   filter(date >= ym(199401),
                                          date<=ym(201912))
                                 ),

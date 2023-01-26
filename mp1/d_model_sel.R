@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230125")
+               JOBID = "20230126")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -294,7 +294,7 @@ get_fevd <- function (irf_arr, int_var = NULL, by_arg=NULL)
 #                    folder = "/proj/juhokois/sim_news/local_data/",
 #                    username = "juhokois",
 #                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20230125.zip",
+# sftp::sftp_download(file = "jobid_20230126.zip",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
@@ -427,13 +427,13 @@ irf_arr <- tt %>%
   filter(norm_indep_flag==0, 
          !mpr_lvl, 
          log_level,
-         mp_type=="Jaro22") %>% 
+         mp_type=="BRW21") %>% 
   # Merge data
   mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>%
-  # Save position of structural impact matrix
+  # Save position of structural impact matrix in prm vector
   mutate(aux_ix = map2(.x = params_deep_final, .y = B_mat, ~ .x%in%c(.y))) %>%
-  # Calculate unique rotation for the B matrix
-  mutate(B_mat = map(.x = B_mat, ~ choose_perm_sign(target_mat = NULL, cand_mat = .x, type = "dg_abs")[[1]])) %>%
+  # Calculate unique rotation for the B matrix and replace old
+  mutate(B_mat = map(.x = B_mat, ~ choose_perm_sign(cand_mat = .x, type = "dg_abs")[[1]])) %>%
   # Replace old vector of B matrix values with the rotated ones
   mutate(params_deep_final = pmap(list(x = params_deep_final, y = aux_ix, z = B_mat), function(x,y,z) replace(x, y, c(z)))) %>% 
   # Calculate unique irf
