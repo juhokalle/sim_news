@@ -42,16 +42,16 @@ mp_type <- c("Jaro22", "BRW21", "BS22", "GSS22", "JK20")
 
 # choose baseline variables
 baseline_data <- replicate(n = 4,
-                           list(fred_md %>% dplyr::select(date, LIP, LCPI, WX, SP500) %>% 
+                           list(fred_md %>% dplyr::select(date, LIP, LCPI, FEDFUNDS_A) %>% 
                                   filter(date >= ym(199401),
                                          date<=ym(201912)),
-                                fred_md %>% dplyr::select(date, LIP, PI, WX, SP500) %>% 
+                                fred_md %>% dplyr::select(date, LIP, PI, FEDFUNDS_A) %>% 
                                   filter(date >= ym(199401),
                                          date<=ym(201912))
                                 ),
                            simplify = FALSE) %>% unlist(recursive=FALSE)
 
-baseline_data[c(1,2,5,6)] <- map(baseline_data[c(1,2,5,6)], ~ .x %>% filter(date<=ym(201206)))
+baseline_data[c(1,2,5,6)] <- map(baseline_data[c(1,2,5,6)], ~ .x %>% filter(date<=ym(200812)))
 
 dl <- replicate(length(mp_id), baseline_data, simplify = FALSE) %>% 
   unlist(recursive = FALSE)
