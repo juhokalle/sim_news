@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230126")
+               JOBID = "20230127")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
