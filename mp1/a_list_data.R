@@ -28,9 +28,9 @@ WX <- readxl::read_excel("local_data/WuXiaShadowRate.xlsx",
                               sheet = "Data")[,3]
 colnames(WX) <- "WX"
 WX$date <- seq(lubridate::ym(196001), by ="month", length.out = nrow(WX))
-SSR <- read_excel("local_data/SSR_Estimates_202206.xlsx", 
-                  sheet = "D. Monthly average SSR series", 
-                  skip = 19)[,3]
+SSR <- readxl::read_excel("local_data/SSR_Estimates_202206.xlsx", 
+                          sheet = "D. Monthly average SSR series", 
+                          skip = 19)[,3]
 colnames(SSR) <- "SSR"
 SSR$date <- seq(lubridate::ym(199501), by= "month", length.out = nrow(SSR))
 
@@ -70,12 +70,16 @@ dl <- map(qq, ~ mutate(dl[[which(qq %in% .x)]] %>%
                                       dplyr::select(date, all_of(gsub('.{2}$', '', .x))) %>% 
                                       rename(MPR = all_of(gsub('.{2}$', '', .x))),
                                     by="date")  %>% 
-                         mutate(MPR = 
-                                  if(str_sub(.x,-1)%in%letters[3:4]){
+                         mutate(MPR =
+                                  if(str_sub(.x,-1)%in%letters[3:4])
+                                    {
                                     cumsum(coalesce(MPR, 0)) + MPR*0
-                                    } else MPR) %>% 
+                                    } else MPR
+                                ) %>% 
                          filter(complete.cases(.)) %>% 
-                         dplyr::select(-date))
+                         dplyr::select(-date) %>% 
+                         mutate_all(~ lm(.x ~ I(1:n())) %>% residuals())
+                       )
           )
 
 # standardise data and save sd's for later analysis

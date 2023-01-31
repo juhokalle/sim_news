@@ -57,6 +57,7 @@ dl <- lapply(arg_list, function(x) do.call(mb_boot, x)) %>%
 # standardize data for estimation
 data_list <- tibble(data_list = lapply(dl, function(x) apply(x, 2, function(xx) (xx-mean(xx))/sd(xx))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
-                    sd = rep(c("tdist", "sgt"), each = 1000))
+                    sd = rep(c("tdist", "sgt"), each = 1000),
+                    theta_init = rep(list(arg_list[[1]]$prms, arg_list[[2]]$prms), each = 1000))
 
 saveRDS(data_list, file = "./local_data/data_list_boot.rds")
