@@ -337,8 +337,9 @@ for (ix_file in seq_along(vec_files)){
                         ~fill_tmpl_whf_rev(theta = .x, 
                                            tmpl = .y)$B)) %>% 
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-    select(nr, p, q, kappa, k, n_st, n_unst, value_final, value_aic, value_bic, nobs, 
-           mp_type, shock_distr, mpr_lvl,
+    select(nr, p, q, kappa, k, n_st, n_unst,
+           value_final, value_aic, value_bic, nobs,
+           mp_type, shock_distr, mpr_lvl, smpl_s, log_level,
            B_mat, shocks, res, params_deep_final, tmpl)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
@@ -417,16 +418,17 @@ tt %>% pull(norm_indep_flag) %>% table
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==2) %>%
-  group_by(mp_type, mpr_lvl) %>%
+  filter(norm_indep_flag==0) %>%
+  group_by(mp_type, mpr_lvl, log_level) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = mp_type, values_from = n)
 
 irf_arr <- tt %>%
   # Filter models according to some criteria
-  filter(norm_indep_flag==2,
+  filter(norm_indep_flag==0,
          mpr_lvl,
-         mp_type=="Swanson21") %>% 
+         log_level,
+         mp_type=="Jaro22") %>% 
   arrange(value_bic) %>% 
   # Merge data
   mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>%

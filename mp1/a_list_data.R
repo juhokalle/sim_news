@@ -78,7 +78,7 @@ dl <- map(qq, ~ mutate(dl[[which(qq %in% .x)]] %>%
                                 ) %>% 
                          filter(complete.cases(.)) %>% 
                          dplyr::select(-date) %>% 
-                         mutate_all(~ lm(.x ~ I(1:n())) %>% residuals())
+                         mutate_all(~ lm(.x ~ I(1:n()) + I((1:n())^2)) %>% residuals())
                        )
           )
 
