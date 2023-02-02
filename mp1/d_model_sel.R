@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230131")
+               JOBID = "20230201")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -294,7 +294,7 @@ get_fevd <- function (irf_arr, int_var = NULL, by_arg=NULL)
 #                    folder = "/proj/juhokois/sim_news/local_data/",
 #                    username = "juhokois",
 #                    password = "***") -> scnx
-# sftp::sftp_download(file = "jobid_20230126.zip",
+# sftp::sftp_download(file = "jobid_20230201.zip",
 #                     tofolder = "/local_data/",
 #                     sftp_connection = scnx)
 vec_files = list.files(paste0(params$PATH, params$JOBID))
@@ -339,7 +339,7 @@ for (ix_file in seq_along(vec_files)){
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
     select(nr, p, q, kappa, k, n_st, n_unst,
            value_final, value_aic, value_bic, nobs,
-           mp_type, shock_distr, mpr_lvl, smpl_s, log_level,
+           mp_type, shock_distr, mpr_lvl, log_lvl,
            B_mat, shocks, res, params_deep_final, tmpl)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
@@ -418,17 +418,17 @@ tt %>% pull(norm_indep_flag) %>% table
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==0) %>%
-  group_by(mp_type, mpr_lvl, log_level) %>%
+  filter(norm_indep_flag==1) %>%
+  group_by(mp_type, mpr_lvl, log_lvl) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = mp_type, values_from = n)
 
 irf_arr <- tt %>%
   # Filter models according to some criteria
-  filter(norm_indep_flag==0,
+  filter(norm_indep_flag==1,
          mpr_lvl,
-         log_level,
-         mp_type=="Jaro22") %>% 
+         !log_lvl,
+         mp_type=="GSS22") %>% 
   arrange(value_bic) %>% 
   # Merge data
   mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>%
@@ -439,7 +439,7 @@ irf_arr <- tt %>%
   # Replace old vector of B matrix values with the rotated ones
   mutate(params_deep_final = pmap(list(x = params_deep_final, y = aux_ix, z = B_mat), function(x,y,z) replace(x, y, c(z)))) %>% 
   # Calculate unique irf
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48))) %>%
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 96))) %>%
   # Shocks, also rotated now appropriately
   mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   # Shock covariance
