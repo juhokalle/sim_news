@@ -9,8 +9,8 @@
 #SBATCH -e rre%a.err
 #SBATCH --array=1-60
 
-N_MODS_PER_CORE=1
-MANUALLY_ASSIGNED_ID=20230126
+N_MODS_PER_CORE=5
+MANUALLY_ASSIGNED_ID=20230202
 SRUN_CPUS_PER_TASK=16
 
 module use /appl/modulefiles/all/ #loads all mds

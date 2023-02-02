@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230201")
+               JOBID = "20230202")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -418,16 +418,16 @@ tt %>% pull(norm_indep_flag) %>% table
 
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
-  filter(norm_indep_flag==1) %>%
+  filter(norm_indep_flag==0) %>%
   group_by(mp_type, mpr_lvl, log_lvl) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = mp_type, values_from = n)
 
 irf_arr <- tt %>%
   # Filter models according to some criteria
-  filter(norm_indep_flag==1,
+  filter(norm_indep_flag==0,
          mpr_lvl,
-         !log_lvl,
+         log_lvl,
          mp_type=="GSS22") %>% 
   arrange(value_bic) %>% 
   # Merge data
@@ -439,7 +439,7 @@ irf_arr <- tt %>%
   # Replace old vector of B matrix values with the rotated ones
   mutate(params_deep_final = pmap(list(x = params_deep_final, y = aux_ix, z = B_mat), function(x,y,z) replace(x, y, c(z)))) %>% 
   # Calculate unique irf
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 96))) %>%
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 48))) %>%
   # Shocks, also rotated now appropriately
   mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   # Shock covariance

@@ -39,6 +39,7 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rds"
 
 params$RESTART_W_NOISE = 0
+params$FIX_INIT = FALSE
 
 params$AR_ORDER_MAX = 3
 params$MA_ORDER_MAX = 3
@@ -58,8 +59,8 @@ params$MAXIT_NM_LAPLACE = 5000 # default for NM is 500
 params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 500 # default for derivative based methods
-params$MAXIT_NM_SGT = 5000 # default for NM is 500
+params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
+params$MAXIT_NM_SGT = 10000 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
@@ -96,7 +97,7 @@ tt =
          k = n_unst %% DIM_OUT) %>% 
   # Estimate SVAR for comparison 
   bind_rows(tibble(p = (params$AR_ORDER_MAX+1):12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
-  expand_grid(DATASET, sd = c("tdist", "gt", "skewed_ged", "sgt"))
+  expand_grid(DATASET, sd = c("tdist", "gt", "skewed_ged", "sgt", "skewed_t"))
 
 pap = pap_factory(params$PATH_RESULTS_HELPER)
 
