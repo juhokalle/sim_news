@@ -12,7 +12,7 @@ void = lapply(pkgs, library, character.only = TRUE)
 args = commandArgs(trailingOnly=TRUE)
 params = list()
 # Helper functions ####
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr, ...){
+pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "gaussian", ...){
   tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
 }
 
