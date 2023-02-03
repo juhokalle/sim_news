@@ -37,27 +37,25 @@ mb_boot <- function(y, prms, tmpl, b.length=10, nboot=500){
   return(ystar)
 }
 
-ds <- readRDS("./local_data/jobid_20230113/total_data.rds") %>% 
-  filter(mp_type == "BS22", log_level =="pi") %>% 
+tbl0 <- readRDS("./local_data/target_model.rds")
+ds <- readRDS("./local_data/jobid_20230125/total_data.rds") %>% 
+  slice(tbl0$nr) %>%  
   pull(data_list) %>% .[[1]]
 
-tbl0 <- readRDS("./local_data/target_model.rds")
-arg_list <- lapply(c("tdist", "sgt"), function(x)
-  list(y = ds, 
-       prms = tbl0 %>% filter(sd==x) %>% pull(params_deep_final) %>% .[[1]],
-       tmpl = tbl0 %>% filter(sd==x) %>% pull(tmpl) %>% .[[1]],
-       b.length = 10,
-       nboot = 1000
-       )
-  )
+arg_list <-list(y = ds, 
+                prms = tbl0 %>% pull(params_deep_final) %>% .[[1]],
+                tmpl = tbl0 %>% pull(tmpl) %>% .[[1]],
+                b.length = 10,
+                nboot = 1000
+                )
 
-dl <- lapply(arg_list, function(x) do.call(mb_boot, x)) %>% 
-  unlist(recursive = FALSE)
+dl <- do.call(mb_boot, arg_list)
 
 # standardize data for estimation
 data_list <- tibble(data_list = lapply(dl, function(x) apply(x, 2, function(xx) (xx-mean(xx))/sd(xx))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
-                    sd = rep(c("tdist", "sgt"), each = 1000),
-                    theta_init = rep(list(arg_list[[1]]$prms, arg_list[[2]]$prms), each = 1000))
+                    sd = rep("sgt", 1000),
+                    theta_init = rep(list(arg_list$prms), 1000)
+                    )
 
 saveRDS(data_list, file = "./local_data/data_list_boot.rds")

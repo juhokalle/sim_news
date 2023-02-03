@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230202")
+               JOBID = "20230125")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -339,7 +339,7 @@ for (ix_file in seq_along(vec_files)){
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
     select(nr, p, q, kappa, k, n_st, n_unst,
            value_final, value_aic, value_bic, nobs,
-           mp_type, shock_distr, mpr_lvl, log_lvl,
+           mp_type, shock_distr, mpr_lvl, log_level,
            B_mat, shocks, res, params_deep_final, tmpl)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 
@@ -419,16 +419,16 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>%
-  group_by(mp_type, mpr_lvl, log_lvl) %>%
+  group_by(mp_type, mpr_lvl, log_level) %>%
   summarise(n=n()) %>% 
   pivot_wider(names_from = mp_type, values_from = n)
 
 irf_arr <- tt %>%
   # Filter models according to some criteria
   filter(norm_indep_flag==0,
-         mpr_lvl,
-         log_lvl,
-         mp_type=="GSS22") %>% 
+         !mpr_lvl,
+         log_level,
+         mp_type=="Jaro22") %>% 
   arrange(value_bic) %>% 
   # Merge data
   mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>%
@@ -455,6 +455,8 @@ irf_arr <- tt %>%
 for(j in 1:nrow(irf_arr)){
   irf_arr %>% slice(j) %>% pull(irf) %>% .[[1]] %>% plot
 }
+
+saveRDS(irf_arr %>% slice(1), "local_data/target_model.rds")
 
 irf_tot <- irf_arr %>% 
   mutate(irf = map(.x = irf, ~ unclass(.x))) %>% 
