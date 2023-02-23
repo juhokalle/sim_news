@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230125")
+               JOBID = "20230209")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -339,7 +339,8 @@ for (ix_file in seq_along(vec_files)){
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
     select(nr, p, q, kappa, k, n_st, n_unst,
            value_final, value_aic, value_bic, nobs,
-           mp_type, shock_distr, mpr_lvl, log_level,
+           # mp_type, mpr_lvl, log_level,
+           shock_distr, 
            B_mat, shocks, res, params_deep_final, tmpl)
     #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
     #unnest_wider(cov_shocks) %>% 

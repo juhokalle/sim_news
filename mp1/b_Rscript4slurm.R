@@ -41,26 +41,26 @@ params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rd
 params$RESTART_W_NOISE = 0
 params$FIX_INIT = FALSE
 
-params$AR_ORDER_MAX = 3
-params$MA_ORDER_MAX = 3
+params$AR_ORDER_MAX = 4
+params$MA_ORDER_MAX = 4
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
 params$MAXIT_BFGS_GAUSS = 500
-params$MAXIT_NM_GAUSS = 5000
+params$MAXIT_NM_GAUSS = 1000
 
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 5000 # default for NM is 500
+params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
 
 params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
-params$MAXIT_NM_SGT = 10000 # default for NM is 500
+params$MAXIT_NM_SGT = 2500 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
