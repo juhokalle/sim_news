@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230209")
+               JOBID = "20230223")
 
 # functions for the analysis
 norm_irf <- function(irf_arr, 
@@ -339,6 +339,8 @@ for (ix_file in seq_along(vec_files)){
     mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
     select(nr, p, q, kappa, k, n_st, n_unst,
            value_final, value_aic, value_bic, nobs,
+           long_sample, short_sample, fgr_sample,
+           log_diff, pi, log_level,
            # mp_type, mpr_lvl, log_level,
            shock_distr, 
            B_mat, shocks, res, params_deep_final, tmpl)
@@ -348,6 +350,10 @@ for (ix_file in seq_along(vec_files)){
 }
 
 tt_full = reduce(tibble_list, bind_rows)
+tt_full <- bind_cols(tt_full,
+                     FFR = rep(rep(rep(c(T,F), each = 3), 3), 910),
+                     GS1 = rep(rep(rep(c(F,T), each = 3), 3), 910)
+                     )
 tt = tt_full %>% 
   mutate(rk_aic = rank(value_aic),
          rk_bic = rank(value_bic),
@@ -420,16 +426,20 @@ tt %>% pull(norm_indep_flag) %>% table
 tt %>%
   #mutate(n_params = map_int(params_deep_final, length)) %>% 
   filter(norm_indep_flag==0) %>%
-  group_by(mp_type, mpr_lvl, log_level) %>%
-  summarise(n=n()) %>% 
-  pivot_wider(names_from = mp_type, values_from = n)
+  group_by(log_level, pi, log_diff,
+           FFR, GS1,
+           short_sample, long_sample, fgr_sample) %>%
+  summarise(n=n()) %>%
+  arrange(n)
+  pivot_wider(names_from = shock_distr, values_from = n)
 
 irf_arr <- tt %>%
   # Filter models according to some criteria
   filter(norm_indep_flag==0,
-         !mpr_lvl,
+         value_final != 1e25,
          log_level,
-         mp_type=="Jaro22") %>% 
+         FFR,
+         fgr_sample) %>% 
   arrange(value_bic) %>% 
   # Merge data
   mutate(TOTAL_DATA %>% slice(nr) %>% dplyr::select(-sd)) %>%
@@ -453,8 +463,26 @@ irf_arr <- tt %>%
   mutate(ffr_fevd = map(.x = irf, ~ get_fevd(.x, int_var = 3, by_arg = 12))) %>% 
   arrange(value_bic)
 
-for(j in 1:nrow(irf_arr)){
-  irf_arr %>% slice(j) %>% pull(irf) %>% .[[1]] %>% plot
+irf_arr$irf %>% 
+  map(~ .x %>% unclass) %>% 
+  abind::abind(along=4) %>% 
+  apply(c(1,2,3), mean) %>%
+  #rmfd4dfm:::cum_irf(c(5,5,1)) %>% 
+  pseries(lag.max=48) %>% 
+  plot()
+
+
+plot(pseries(irf_md, lag.max=48))
+
+
+for(j in 1:6){
+  irf_arr %>% 
+    slice(j) %>% 
+    pull(irf) %>% .[[1]] %>%
+    unclass %>% 
+    rmfd4dfm:::cum_irf(trans_ix = c(5,5,1)) %>% 
+    pseries(lag.max = 48) %>% 
+    plot
 }
 
 saveRDS(irf_arr %>% slice(1), "local_data/target_model.rds")
@@ -474,18 +502,6 @@ tbl0 <- tt %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, lag.max = n_ahead))) %>% 
   mutate(irf = map2(.x = irf, .y = std_dev, ~ diag(.y)%r%.x)) #%>% 
   #mutate(irf = map2(.x = irf, .y = shocks, ~ .x%r%diag(diag(var(.y)))))
-
-get_fevd(tbl0$irf[[1]], int_var = 3, by_arg = 12)
-get_fevd(tbl0$irf[[1]], int_var = 4, by_arg = 12)
-plot(tbl0$irf[[1]])
-
-irf_out <- irf_out%r%diag(c(-1,1,1,1))
-
-irf_bs <- map2(.x = list(irf_out[,1,,drop=FALSE],
-                         irf_out[,3,,drop=FALSE]),
-                .y = c("FG", "MP"), 
-                ~norm_irf(irf_arr = .x, norm_scm = .y, norm_pos = 3, norm_int = .1)) %>%
-  reduce(abind::abind, along=2)
 
 irf_out[,c(3,4),,drop=FALSE] %>%
   plot_irf(var_name = c("IP", "CPI", "FFR", "MPR"),

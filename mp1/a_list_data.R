@@ -101,7 +101,9 @@ dl <- baseline_data %>% map(~ .x %>% dplyr::select(-date))
 data_list <- tibble(data_list = map(dl, ~ .x %>% mutate_all(~(.x - mean(.x))/sd(.x))),
                     std_dev = map(dl, ~ apply(.x, 2, sd)))
 data_list <- data_list %>% 
-  bind_cols(long_sample = rep(c(T,F,F), each = 6), 
+  bind_cols(FFR = rep(rep(c(T,F), each = 3), 3),
+            GS1 = rep(rep(c(F,T), each = 3), 3),
+            long_sample = rep(c(T,F,F), each = 6), 
             short_sample = rep(c(F,T,F), each = 6), 
             fgr_sample = rep(c(F,F,T), each = 6), 
             log_level = rep(c(T,F,F), 6),

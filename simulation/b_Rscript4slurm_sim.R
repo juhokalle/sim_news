@@ -41,23 +41,23 @@ params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/data_list.rds"
 params$AR_ORDER_MAX = 2
 params$MA_ORDER_MAX = 2
 
-params$IT_OPTIM_GAUSS = 3
+params$IT_OPTIM_GAUSS = 2
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
-params$MAXIT_BFGS_GAUSS = 80
-params$MAXIT_NM_GAUSS = 3000
+params$MAXIT_BFGS_GAUSS = 100
+params$MAXIT_NM_GAUSS = 1000
 
-params$IT_OPTIM_LAPLACE = 3
+params$IT_OPTIM_LAPLACE = 2
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
+params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
 
-params$IT_OPTIM_SGT = 4
+params$IT_OPTIM_SGT = 3
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
-params$MAXIT_NM_SGT = 3000 # default for NM is 500
+params$MAXIT_NM_SGT = 1000 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
@@ -93,7 +93,7 @@ tt =
   # assume correct specification w.r.t. MA polm
   filter(n_unst==1) %>% 
   # VAR models
-  bind_rows(expand_grid(p=4:12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
+  bind_rows(expand_grid(p=12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   # this way of including data makes it convenient for slicing
   expand_grid(DATASET)
 

@@ -88,15 +88,16 @@ sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
 }
 
 # Simulation params ####
-mc_n <- 500
-sim_prm <- expand_grid(beta=c(0.5,0.9), rho = 0.5, nobs = 250, nu = c(3, 20))
+mc_n <- 1000
+sim_prm <- expand_grid(beta=c(0.5, 0.9), rho = 0.5, nobs = 250, nu = c(3, 20, 150))
 data_list <- vector("list", mc_n*nrow(sim_prm))
 # Simulation and data save ####
 for(prm_ix in 1:nrow(sim_prm)){
   for(mc_ix in 1:mc_n){
-    data_list[[(prm_ix-1)*mc_n+mc_ix]] <- do.call(sim_news, sim_prm[prm_ix,])$y$y
+    data_list[[(prm_ix-1)*mc_n+mc_ix]] <- do.call(sim_news, sim_prm[prm_ix,])$y
   }
 }
 data_tbl <- expand_grid(sim_prm, mc_ix = 1:mc_n)
-data_tbl$data_list <- data_list
+data_tbl$data_list <- map(data_list, ~ .x$y)
+data_tbl$shock_list <- map(data_list, ~ .x$u)
 saveRDS(data_tbl, file = "./local_data/data_list.rds")

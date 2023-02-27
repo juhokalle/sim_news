@@ -2,8 +2,7 @@ pkgs = c("tidyverse")
 select <- dplyr::select
 void = lapply(pkgs, library, character.only = TRUE)
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20230203")
-
+               JOBID = "20230223")
 
 vec_files = list.files(paste0(params$PATH, params$JOBID))
 vec_files = vec_files[grepl("arrayjob", vec_files)]
