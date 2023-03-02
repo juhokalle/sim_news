@@ -89,7 +89,7 @@ sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
 
 # Simulation params ####
 mc_n <- 1000
-sim_prm <- expand_grid(beta=c(0.5, 0.9), rho = 0.5, nobs = 250, nu = c(3, 20, 150))
+sim_prm <- expand_grid(beta=c(0.5, 0.9), rho = 0.5, nobs = 250, nu = c(3, 20))
 data_list <- vector("list", mc_n*nrow(sim_prm))
 # Simulation and data save ####
 for(prm_ix in 1:nrow(sim_prm)){
