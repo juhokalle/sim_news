@@ -10,7 +10,7 @@
 #SBATCH --array=1-175
 
 N_MODS_PER_CORE=15
-MANUALLY_ASSIGNED_ID=20220227
+MANUALLY_ASSIGNED_ID=20230227
 SRUN_CPUS_PER_TASK=16
 
 module use /appl/modulefiles/all/ #loads all mds
