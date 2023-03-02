@@ -38,6 +38,9 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/data_list.rds"
 
+params$RESTART_W_NOISE = 0
+params$FIX_INIT = FALSE
+
 params$AR_ORDER_MAX = 2
 params$MA_ORDER_MAX = 2
 
