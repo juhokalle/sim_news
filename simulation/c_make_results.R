@@ -6,7 +6,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "20221215")
+               JOBID = "20230303")
 
 # sftp::sftp_connect(server = "turso.cs.helsinki.fi",
 #                    folder = "/proj/juhokois/sim_news/local_data/",
@@ -56,6 +56,38 @@ sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
               mod = re_mod, 
               prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
   )
+}
+
+id_news_shox <- function(irf_arr)
+{
+  
+  DIM_OUT <- dim(irf_arr)[1]
+  n_ahead <- dim(irf_arr)[3]-1
+  # Order news shock last by identifying it from FEVD
+  fevd_i <- irf_arr %>% unclass %>% get_fevd
+  # Contribution per horizon normalized w.r.t. initial period
+  max_i <- lapply(fevd_i, function(x)  t(t(x)/unlist(x[1,])) %>% apply(2, max))
+  # Which horizon accounts for the most contribution w.r.t. initial period?
+  whichMax_i <- sapply(max_i, which.max)
+  # Choose the column of FEVD which shows a) the largest jump w.r.t. init. 
+  # period across variables or b) the largest delayed jump in every variable,
+  # which should be the case with pure news shock
+  if(length(unique(whichMax_i))>1){
+    news_ix <- max_i %>% sapply(max) %>% which.max()
+  } else{
+    news_ix <- unique(whichMax_i)
+  }
+  irf_arr <- pseries(irf_arr, n_ahead)%r%diag(DIM_OUT)[, c((1:DIM_OUT)[-news_ix], news_ix)]
+  # Impose zero restriction 
+  # rt_zero <- optim_zr(input_mat = irf_i[,,1],
+  #                     zr_ix = c(1,2),
+  #                     opt_it = FALSE)
+  # irf_i <- irf_i%r%rt_zero
+  # Impose positive signs of the shocks: 1) conventional shock; 2) news shock
+  if(all(irf_arr[,1,1]<0)) irf_arr <- irf_arr%r%diag(c(-1, 1))
+  max_ix <- apply(abs(irf_arr[,DIM_OUT,]), 1, which.max)
+  if(all(apply(irf_arr[,DIM_OUT,max_ix], 1, max) < 0)) irf_arr <- irf_arr%r%diag(c(1,-1))
+  return(irf_arr)
 }
 
 rotmat <- function(x, n)
@@ -191,7 +223,6 @@ choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs"))
   return(list(x_opt, rt_opt))
 }
 
-
 sim_comparison <- function(irf_arr, shock_ix, qntl, prms)
 {
   n_ahead <- dim(irf_arr)[3]-1
@@ -282,7 +313,7 @@ for (ix_file in seq_along(vec_files))
     select(nr, params_deep_final, value_final, input_integerparams) %>% 
     mutate(n_params = map_int(params_deep_final, length)) %>% 
     unnest_wider(input_integerparams) %>% 
-    mutate(readRDS("local_data/total_data_sim.rds") %>% slice(nr)) %>% 
+    mutate(readRDS(paste0(params$PATH, params$JOBID, "/total_data_sim.rds")) %>% slice(nr)) %>% 
     mutate(punish_aic = n_params * 2/nobs) %>% 
     mutate(punish_bic = n_params * log(nobs)/nobs) %>% 
     mutate(value_aic = value_final + punish_aic) %>% 
@@ -301,15 +332,25 @@ for (ix_file in seq_along(vec_files))
 }
 
 tt_opt <- tt_full %>% 
+  filter(value_final!=1e25) %>% 
   group_by(mc_ix, n_unst, beta, nu) %>% 
   slice_min(value_aic) %>% 
   ungroup() %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   #mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_ahead)))
   #mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_unique(.x, .y, lag.max=n_ahead)))
-  mutate(rmat = map(.x = B_mat, ~ choose_perm_sign(cand_mat = .x, type = "dg_abs")[[2]])) %>% 
+  mutate(b0 = map2(.x = params_deep_final, .y = tmpl,
+                   ~ armamod_whf(.x, .y) %>%
+                     .$polm_ma %>%
+                     unclass %>%
+                     .[,,1]
+                   )
+         ) %>%
+  mutate(b0 = map2(.x = b0, .y = B_mat, ~ .x%*%.y)) %>%
+  mutate(rmat = map(.x = b0, ~ choose_perm_sign(cand_mat = .x, type = "dg_abs")[[2]])) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(theta = .x, tmpl = .y, n_lags = n_ahead))) %>% 
   mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y))
+  # mutate(irf = map(.x = irf, ~ id_news_shox(unclass(.x))))
 
 mc_n <- unique(tt_opt$mc_ix)
 prms <- expand.grid(beta = unique(tt_opt$beta), nu = unique(tt_opt$nu))

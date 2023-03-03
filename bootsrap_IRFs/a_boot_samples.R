@@ -38,7 +38,7 @@ mb_boot <- function(y, prms, tmpl, b.length=10, nboot=500){
 }
 
 tbl0 <- readRDS("./local_data/target_model.rds")
-ds <- readRDS("./local_data/jobid_20230125/total_data.rds") %>% 
+ds <- readRDS("./local_data/jobid_20230303/total_data_sim.rds") %>% 
   slice(tbl0$nr) %>%  
   pull(data_list) %>% .[[1]]
 
@@ -46,7 +46,7 @@ arg_list <-list(y = ds,
                 prms = tbl0 %>% pull(params_deep_final) %>% .[[1]],
                 tmpl = tbl0 %>% pull(tmpl) %>% .[[1]],
                 b.length = 10,
-                nboot = 5000
+                nboot = 1000
                 )
 
 dl <- do.call(mb_boot, arg_list)
@@ -54,8 +54,6 @@ dl <- do.call(mb_boot, arg_list)
 # standardize data for estimation
 data_list <- tibble(data_list = lapply(dl, function(x) apply(x, 2, function(xx) (xx-mean(xx))/sd(xx))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
-                    sd = rep("sgt", 5000),
-                    theta_init = rep(list(arg_list$prms), 5000)
                     )
 
 saveRDS(data_list, file = "./local_data/data_list_boot.rds")
