@@ -46,20 +46,20 @@ params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/data_list_boot.rds"
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
-params$MAXIT_BFGS_GAUSS = 100
+params$MAXIT_BFGS_GAUSS = 500
 params$MAXIT_NM_GAUSS = 1000
 
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
-params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
+params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
 params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
 
-params$IT_OPTIM_SGT = 3
+params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
-params$MAXIT_NM_SGT = 1000 # default for NM is 500
+params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
+params$MAXIT_NM_SGT = 2500 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
@@ -84,7 +84,7 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt =
   # the chosen model:
-  # tibble(p = 1, q = 1, kappa = 0, k = 1, n_st = 1, n_unst = 1) %>% 
+  tibble(p = 1, q = 1, kappa = 0, k = 1, n_st = 1, n_unst = 1) %>% 
   # this way of including data makes it convenient for slicing
   expand_grid(DATASET)
 
