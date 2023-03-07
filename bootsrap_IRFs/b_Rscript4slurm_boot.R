@@ -84,7 +84,7 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt =
   # the chosen model:
-  tibble(p = 1, q = 1, kappa = 0, k = 1, n_st = 1, n_unst = 1) %>% 
+  # tibble(p = 1, q = 1, kappa = 0, k = 1, n_st = 1, n_unst = 1) %>% 
   # this way of including data makes it convenient for slicing
   expand_grid(DATASET)
 
@@ -98,7 +98,8 @@ tt_optim_parallel = tt %>%
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  select(theta_init, tmpl, data_list, sd)
+  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y,.x))) %>% 
+  select(theta_init, tmpl, data_list)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])
