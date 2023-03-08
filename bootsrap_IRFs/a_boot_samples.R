@@ -40,7 +40,8 @@ mb_boot <- function(y, prms, tmpl, b.length=10, nboot=500){
 tbl0 <- readRDS("./local_data/target_model.rds")
 ds <- readRDS("./local_data/jobid_20230303/total_data_sim.rds") %>% 
   slice(tbl0$nr) %>%  
-  pull(data_list) %>% .[[1]]
+  pull(data_list) %>% .[[1]] %>% .[1:250,]
+  
 bl_vec <- c(5,10,20,50)
 
 arg_list <- map(bl_vec, ~

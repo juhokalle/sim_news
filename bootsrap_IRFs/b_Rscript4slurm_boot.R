@@ -84,7 +84,7 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt =
   # the chosen model:
-  tibble(p = 1, q = 1, kappa = 0, k = 1, n_st = 1, n_unst = 1) %>% 
+  tibble(p = 1, q = 2, kappa = 0, k = 1, n_st = 1, n_unst = 1) %>% 
   # this way of including data makes it convenient for slicing
   expand_grid(DATASET)
 
