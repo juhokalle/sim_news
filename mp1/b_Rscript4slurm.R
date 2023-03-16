@@ -3,6 +3,7 @@
 # ----------------------------- #
 
 # Packages ####
+source("list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "mixtools", 
           "fitdistrplus", "sgt", "tidyverse")
@@ -11,18 +12,6 @@ void = lapply(pkgs, library, character.only = TRUE)
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
 params = list()
-# Helper functions ####
-pmap_tmpl_whf_rev = function(dim_out = DIM_OUT, p, q, kappa, k, shock_distr = "gaussian", ...){
-  tmpl_whf_rev(dim_out = DIM_OUT, ARorder = p, MAorder = q, kappa = kappa, k = k, shock_distr = shock_distr)
-}
-
-hlp_parallel = function(list_input){
-  return(create_results_list(theta_init = list_input[[1]], 
-                             tmpl       = list_input[[2]],
-                             params     = params, 
-                             DATASET    = list_input[[3]],
-                             shock_distr = list_input[[4]]))
-}
 
 # Parameters from Rmarkdown
 params$USE_PARALLEL = TRUE
@@ -119,7 +108,8 @@ tt_optim_parallel = tt %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
-  select(theta_init, tmpl, data_list, sd)
+  select(theta_init, tmpl, data_list, sd) %>% 
+  rename(shock_distr = sd)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])
