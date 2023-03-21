@@ -3,6 +3,7 @@
 source("list_of_functions.R")
 pkgs <- c("svarmawhf", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
+nboot <- 5000
 
 tbl0 <- readRDS("./local_data/target_model.rds")
 ds <- readRDS("./local_data/jobid_20230303/total_data_sim.rds") %>% 
@@ -17,7 +18,7 @@ arg_list <- map(bl_vec, ~
                        prms = tbl0 %>% pull(params_deep_final) %>% .[[1]],
                        tmpl = tbl0 %>% pull(tmpl) %>% .[[1]],
                        b.length = .x,
-                       nboot = 5000)
+                       nboot = nboot)
                 )
 
 dl <- map(arg_list, ~ do.call(mb_boot, .x)) %>% unlist(recursive = FALSE)
@@ -25,6 +26,6 @@ dl <- map(arg_list, ~ do.call(mb_boot, .x)) %>% unlist(recursive = FALSE)
 # standardize data for estimation
 data_list <- tibble(data_list = lapply(dl, function(x) apply(x, 2, function(xx) (xx-mean(xx))/sd(xx))),
                     std_dev = lapply(dl, function(x) apply(x, 2, sd)),
-                    mb_length = rep(bl_vec, each = 5000))
+                    mb_length = rep(bl_vec, each = nboot))
 
 saveRDS(data_list, file = "./local_data/data_list_boot.rds")

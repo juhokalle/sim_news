@@ -13,14 +13,16 @@ void = lapply(pkgs, library, character.only = TRUE)
 # Simulation params ####
 mc_n <- 5000
 sim_prm <- expand_grid(beta=c(0.5, 0.9), rho = 0.5, nobs = 250, nu = c(3, 20))
-data_list <- vector("list", mc_n*nrow(sim_prm))
+dl <- vector("list", mc_n*nrow(sim_prm))
 # Simulation and data save ####
 for(prm_ix in 1:nrow(sim_prm)){
   for(mc_ix in 1:mc_n){
-    data_list[[(prm_ix-1)*mc_n+mc_ix]] <- do.call(sim_news, sim_prm[prm_ix,])$y
+    dl[[(prm_ix-1)*mc_n+mc_ix]] <- do.call(sim_news, sim_prm[prm_ix,])$y
   }
 }
 data_tbl <- expand_grid(sim_prm, mc_ix = 1:mc_n)
-data_tbl$data_list <- map(data_list, ~ .x$y)
+data_tbl <- data_tbl %>% 
+  mutate(data_list = lapply(dl, function(x) apply(x$y, 2, function(xx) (xx-mean(xx))/sd(xx))),
+         std_dev = lapply(dl, function(x) apply(x$y, 2, sd)))
 #data_tbl$shock_list <- map(data_list, ~ .x$u)
 saveRDS(data_tbl, file = "./local_data/data_list.rds")

@@ -74,7 +74,7 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt = 
   # orders (p,q)
-  tibble(p = 1, q = 2)
+  tibble(p = 1, q = 2) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
   unnest(n_unst) %>% 
@@ -84,14 +84,13 @@ tt =
   # assume correct specification w.r.t. MA polm
   filter(n_unst==1) %>% 
   # VAR models
-  bind_rows(expand_grid(p=12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
+  bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   # this way of including data makes it convenient for slicing
   expand_grid(DATASET)
 
 if(params$IX_ARRAY_JOB==1){
   saveRDS(tt, file = paste0(params$PATH_RESULTS_HELPER, "total_data_sim.rds"))
 }
-
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
