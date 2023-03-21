@@ -2,11 +2,11 @@
 # Script to be called via SLURM #
 # ----------------------------- #
 
-# Packages ####
-source("list_of_functions.R")
+# PREAMBLE ####
+source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
-pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", "mixtools", 
-          "fitdistrplus", "sgt", "tidyverse")
+pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", 
+          "mixtools", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
 # Arguments from Rscript call: Parameters from SLURM script ####
@@ -20,15 +20,16 @@ if (params$USE_PARALLEL){
 } else {
   params$N_CORES = 1
 }
+
+params$RESTART_W_NOISE = 0
+params$FIX_INIT = FALSE
+
 params$N_MODS_PER_CORE = as.integer(args[1]) # important param: specifies how many models are estimated by each array-job
 params$IX_ARRAY_JOB = as.integer(args[2]) # index of array-job. Number of array-jobs is determined from number of rows of dataframe containing all integer-values parameters
 params$SLURM_JOB_ID = as.integer(args[3])
 params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
 
 params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rds"
-
-params$RESTART_W_NOISE = 0
-params$FIX_INIT = FALSE
 
 params$AR_ORDER_MAX = 4
 params$MA_ORDER_MAX = 4

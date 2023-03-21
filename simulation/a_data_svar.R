@@ -6,9 +6,9 @@
 # --------------------------------------------------------------- #
 
 # Packages ####
+source("list_of_functions.R")
 pkgs <- c("svarmawhf", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
-source("list_of_functions.R")
 
 # Simulation params ####
 mc_n <- 1000

@@ -131,29 +131,6 @@ get_llf <- function(p, q, kappa, k, dtype, sd)
   
 }
 
-sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
-{
-  theta <- 1/(1-beta*rho)
-  ar_pol <- array(c(diag(2),                   # lag 0
-                    -rho, -rho*theta, 0, 0),   # lag 1
-                  dim = c(2,2,2))
-  ma_pol <- array(c(diag(2), # lag 0
-                    0, -theta/beta, 0, 1/beta,       # lag 1
-                    -1/beta^2, -theta/beta^2, 1/(theta*beta^2), 1/beta^2), # lag 2
-                  dim = c(2,2,3))
-  bmat <- matrix(c(1, theta, 0, theta*beta^2), 2, 2)
-  re_mod <- armamod(sys = lmfd(ar_pol, ma_pol), sigma_L = bmat)
-  if(no_sim) return(re_mod)
-  data_out <- simu_y(model = re_mod,
-                     rand.gen =  function(x) stats::rt(x, nu),
-                     n.burnin = 2*nobs,
-                     n.obs = nobs)
-  return(list(y = data_out, 
-              mod = re_mod, 
-              prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
-  )
-}
-
 id_news_shox <- function(irf_arr)
 {
   dim_out <- dim(irf_arr)[1]
@@ -202,6 +179,24 @@ ff <- function(x, zero_ix, input_mat)
   row_ix <- if(is.null(dim(zero_ix))) zero_ix[1] else zero_ix[,1]
   col_ix <- if(is.null(dim(zero_ix))) zero_ix[2] else zero_ix[,2]
   sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
+}
+
+id_policy_shox <- function(irf_arr, policy_var)
+{
+  
+  dim_out <- dim(irf_arr)[1]
+  n_ahead <- dim(irf_arr)[3]
+  fevd_obj <- get_fevd(irf_arr, int_var = policy_var)[[1]]
+  combs <- combn(dim_out, 2)
+  res_mt <- matrix(NA, n_ahead, ncol(combs))
+  
+  for(j in 1:n_ahead){
+    for(jj in 1:ncol(combs)){
+      res_mt[j,jj] <- sum(fevd_obj[j, combs[,jj]])
+    }
+  }
+  combs[,which.max(colMeans(res_mt))]
+  
 }
 
 optim_zr <- function(input_mat, zr_ix, opt_it = TRUE)

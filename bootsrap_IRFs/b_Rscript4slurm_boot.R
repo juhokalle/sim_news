@@ -3,7 +3,7 @@
 # ----------------------------- #
 
 # PREAMBLE ####
-source("list_of_functions.R")
+source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", 
           "mixtools", "fitdistrplus", "sgt", "tidyverse")

@@ -2,12 +2,12 @@
 # This script creates model output: diagnostics, model selection, IRFs... #
 # ----------------------------------------------------------------------- #
 
+source("list_of_functions.R")
 pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
                JOBID = "20230303")
-source("list_of_functions.R")
 
 # sftp::sftp_connect(server = "turso.cs.helsinki.fi",
 #                    folder = "/proj/juhokois/sim_news/local_data/",
