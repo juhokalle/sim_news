@@ -150,11 +150,13 @@ id_news_shox <- function(irf_arr)
     news_ix <- unique(whichMax_i)
   }
   rot_mat <- diag(dim_in)[, c((1:dim_in)[-news_ix], news_ix)]
+  irf_arr <- irf_arr%r%rot_mat
   # Impose positive signs of the shocks: 1) conventional shock; 2) news shock
-  rot_mat <- rot_mat%*%choose_perm_sign(cand_mat = (irf_arr%r%rot_mat)[1:dim_in, 1:dim_in, 1],
+  rot_mat <- rot_mat%*%choose_perm_sign(cand_mat = unclass(irf_arr)[1:dim_in, 1:dim_in, 1],
                                         type = "dg_abs")
-  peak_ix <- which.max(abs((irf_arr%r%rot_mat)[dim_in, dim_in, ]))
-  if((irf_arr%r%rot_mat)[dim_in, dim_in, peak_ix] < 0){
+  irf_arr <- irf_arr%r%rot_mat
+  peak_ix <- which.max(abs(unclass(irf_arr)[dim_in, dim_in, ]))
+  if(unclass(irf_arr)[dim_in, dim_in, peak_ix] < 0){
     rot_mat <- rot_mat%*%diag(c(rep(1, dim_in-1),-1))
   }
   rot_mat

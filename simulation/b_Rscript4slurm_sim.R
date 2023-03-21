@@ -74,8 +74,7 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt = 
   # orders (p,q)
-  expand_grid(p = 0:params$AR_ORDER_MAX,
-              q = 1:params$MA_ORDER_MAX) %>% 
+  tibble(p = 1, q = 2)
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
   unnest(n_unst) %>% 
