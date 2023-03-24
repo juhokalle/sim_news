@@ -23,7 +23,7 @@ vec_files = vec_files[grepl("arrayjob", vec_files)]
 SCRIPT_PARAMS = readRDS(paste0(params$PATH, params$JOBID, "/", vec_files[1]))[[1]]$results_list$script_params
 DIM_OUT = SCRIPT_PARAMS$DIM_OUT
 
-tt_full <- tibble()
+tibble_list <- list()
 for (ix_file in seq_along(vec_files))
 {
   file_this = readRDS(paste0(params$PATH, params$JOBID, "/",
@@ -34,7 +34,7 @@ for (ix_file in seq_along(vec_files))
   IX_ARRAY_JOB_this = SCRIPT_PARAMS_this$IX_ARRAY_JOB
   N_MODS_this = with(SCRIPT_PARAMS_this, N_MODS_PER_CORE * N_CORES)
   
-  tt_full =  
+  tibble_list[[ix_file]] =  
     enframe(file_this) %>% 
     rename(nr = name) %>% 
     mutate(nr = nr + (IX_ARRAY_JOB_this-1)*N_MODS_this) %>% 
@@ -48,36 +48,33 @@ for (ix_file in seq_along(vec_files))
     # mutate(punish_bic = n_params * log(nobs)/nobs) %>% 
     # mutate(value_aic = value_final + punish_aic) %>% 
     # mutate(value_bic = value_final + punish_bic) %>% 
+    mutate(shock_distr = "tdist") %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% # CHECK THIS, should have shock_distr="tdist"
-    mutate(res = pmap(., pmap_get_residuals_once)) %>% 
-    mutate(B_mat = map2(params_deep_final, tmpl, 
-                        ~fill_tmpl_whf_rev(theta = .x, 
-                                           tmpl = .y)$B)) %>% 
-    mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-    select(nr, p, q, kappa, k, n_st, n_unst, beta, rho, nu, mc_ix, B_mat, shocks, params_deep_final) %>% 
-    bind_rows(tt_full)
+    # mutate(res = pmap(., pmap_get_residuals_once)) %>% 
+    # mutate(B_mat = map2(params_deep_final, tmpl, 
+    #                     ~fill_tmpl_whf_rev(theta = .x, 
+    #                                        tmpl = .y)$B)) %>% 
+    # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
+    select(nr, p, q, kappa, k, n_st, n_unst, beta, rho, nu, tmpl, mc_ix, value_final, 
+           #B_mat, shocks, 
+           params_deep_final, std_dev)
   #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
   #unnest_wider(cov_shocks) %>% 
   #mutate(cov_el_sum = rowSums(across(contains("cov_el")))) # %>% select(-tmpl, -starts_with("punish"), -res, -B_mat)
 }
 
-tt_opt <- tt_full %>% 
-  filter(value_final!=1e25) %>% 
-  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  #mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_ahead)))
-  #mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_unique(.x, .y, lag.max=n_ahead)))
-  mutate(b0 = map2(.x = params_deep_final, .y = tmpl,
-                   ~ armamod_whf(.x, .y) %>%
-                     .$polm_ma %>%
-                     unclass %>%
-                     .[,,1]
-                   )
-         ) %>%
-  mutate(b0 = map2(.x = b0, .y = B_mat, ~ .x%*%.y)) %>%
-  mutate(rmat = map(.x = b0, ~ choose_perm_sign(cand_mat = .x, type = "dg_abs"))) %>%
+tt_opt <- reduce(tibble_list, bind_rows) %>% 
+  filter(value_final!=1e25) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(theta = .x, tmpl = .y, n_lags = n_ahead))) %>% 
-  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y))
-  # mutate(irf = map(.x = irf, ~ id_news_shox(unclass(.x))))
+  # mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_ahead)))
+  # mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_unique(.x, .y, lag.max=n_ahead)))
+  mutate(rmat = map(.x = irf, ~ choose_perm_sign(cand_mat = unclass(.x)[,,1], type = "dg_abs"))) %>%
+  # mutate(rmat = map(.x = irf, ~ id_news_shox(.x, policy_var = 1))) %>% 
+  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
+  mutate(rmat = map(.x = irf, ~ optim_zr(unclass(.x)[,,1], c(1,2), opt_it = FALSE))) %>% 
+  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
+  mutate(irf = map2(.x = std_dev, .y = irf, ~ diag(.x)%r%.y)) %>% 
+  arrange(nr)
 
 mc_n <- unique(tt_opt$mc_ix)
 prms <- expand.grid(beta = unique(tt_opt$beta), nu = unique(tt_opt$nu))
@@ -85,7 +82,7 @@ prms <- expand.grid(beta = unique(tt_opt$beta), nu = unique(tt_opt$nu))
 irf_arr <- array(NA, c(DIM_OUT, DIM_OUT, n_ahead+1, nrow(prms), length(mc_n), 2))
 
 margs_plus_font <- theme(plot.title = element_text(size = 8, hjust = 0.5),
-                         plot.margin=grid::unit(c(1, 1, 0, 0), "mm"),
+                         plot.margin = grid::unit(c(1, 1, 0, 0), "mm"),
                          axis.text.x = element_text(size = 6),
                          axis.text.y = element_text(size = 6))
 

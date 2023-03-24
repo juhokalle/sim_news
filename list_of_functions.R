@@ -69,12 +69,12 @@ sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
   if(no_sim) return(re_mod)
   data_out <- simu_y(model = re_mod,
                      rand.gen =  function(x) stats::rt(x, nu),
-                     n.burnin = 2*nobs,
+                     n.burnin = 1000,
                      n.obs = nobs)
   return(list(y = data_out, 
               mod = re_mod, 
               prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
-  )
+         )
 }
 
 # BOOTSTRAP
@@ -131,33 +131,21 @@ get_llf <- function(p, q, kappa, k, dtype, sd)
   
 }
 
-id_news_shox <- function(irf_arr)
+id_news_shox <- function(irf_arr, policy_var)
 {
-  dim_out <- dim(irf_arr)[1]
   dim_in <- dim(irf_arr)[2]
-  # Order news shock last by identifying it from FEVD
-  fevd_i <- irf_arr %>% unclass %>% get_fevd
-  # Contribution per horizon normalized w.r.t. initial period
-  max_i <- lapply(fevd_i, function(x)  t(t(x)/unlist(x[1,])) %>% apply(2, max))
-  # Which horizon accounts for the most contribution w.r.t. initial period?
-  whichMax_i <- sapply(max_i, which.max)
-  # Choose the column of FEVD which shows a) the largest jump w.r.t. init. 
-  # period across variables or b) the largest delayed jump in every variable,
-  # which should be the case with pure news shock
-  if(length(unique(whichMax_i))>1){
-    news_ix <- max_i %>% sapply(max) %>% which.max()
-  } else{
-    news_ix <- unique(whichMax_i)
-  }
+  news_ix <- which.min(abs(unclass(irf_arr)[policy_var,,1]))
   rot_mat <- diag(dim_in)[, c((1:dim_in)[-news_ix], news_ix)]
-  irf_arr <- irf_arr%r%rot_mat
-  # Impose positive signs of the shocks: 1) conventional shock; 2) news shock
-  rot_mat <- rot_mat%*%choose_perm_sign(cand_mat = unclass(irf_arr)[1:dim_in, 1:dim_in, 1],
-                                        type = "dg_abs")
-  irf_arr <- irf_arr%r%rot_mat
-  peak_ix <- which.max(abs(unclass(irf_arr)[dim_in, dim_in, ]))
-  if(unclass(irf_arr)[dim_in, dim_in, peak_ix] < 0){
-    rot_mat <- rot_mat%*%diag(c(rep(1, dim_in-1),-1))
+  irf_tmp <- irf_arr%r%rot_mat
+  # Impose positive responses to the shocks: 1) conventional shock(s)
+  diag0 <- unclass(irf_tmp)[1:(dim_in-1), 1:(dim_in-1), 1]
+  if(dim_in > 2) diag0 <- diag(diag0)
+  rot_mat <- rot_mat%*%diag(c(sign(diag0), 1))
+  
+  # 2) news shock
+  peak_ix <- which.max(abs(unclass(irf_tmp)[policy_var, dim_in, ]))
+  if(unclass(irf_tmp)[policy_var, dim_in, peak_ix] < 0){
+    rot_mat <- rot_mat%*%diag(c(rep(1, dim_in-1), -1))
   }
   rot_mat
 }
@@ -192,13 +180,12 @@ id_policy_shox <- function(irf_arr, policy_var)
   combs <- combn(dim_out, 2)
   res_mt <- matrix(NA, n_ahead, ncol(combs))
   
-  for(j in 1:n_ahead){
-    for(jj in 1:ncol(combs)){
-      res_mt[j,jj] <- sum(fevd_obj[j, combs[,jj]])
+  for(i in 1:n_ahead){
+    for(j in 1:ncol(combs)){
+      res_mt[i, j] <- sum(fevd_obj[i, combs[,j]])
     }
   }
   combs[,which.max(colMeans(res_mt))]
-  
 }
 
 optim_zr <- function(input_mat, zr_ix, opt_it = TRUE)
@@ -236,7 +223,7 @@ optim_zr <- function(input_mat, zr_ix, opt_it = TRUE)
   }
 }
 
-get_fevd <- function (irf_arr, int_var = NULL, by_arg=NULL)
+get_fevd <- function (irf_arr, int_var = NULL, by_arg = NULL)
 {
   irf_arr <- unclass(irf_arr)
   nvar <- dim(irf_arr)[1]
