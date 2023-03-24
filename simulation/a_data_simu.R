@@ -20,7 +20,8 @@ for(prm_ix in 1:nrow(sim_prm)){
     dl[[(prm_ix-1)*mc_n+mc_ix]] <- do.call(sim_news, sim_prm[prm_ix,])$y
   }
 }
-data_tbl <- tibble(data_list = map(dl, ~ apply(.x$y, 2, function(x) x-mean(x))), 
+data_tbl <- tibble(data_list = map(dl, ~ apply(.x$y, 2, function(x) (x-mean(x))/sd(x))),
+                   std_dev = map(dl, ~ apply(.x$y, 2, sd)),
                    expand_grid(sim_prm, mc_ix = 1:mc_n))
 #data_tbl$shock_list <- map(data_list, ~ .x$u)
 saveRDS(data_tbl, file = "./local_data/data_list.rds")
