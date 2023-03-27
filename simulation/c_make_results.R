@@ -56,7 +56,8 @@ for (ix_file in seq_along(vec_files))
     #                                        tmpl = .y)$B)) %>% 
     # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
     select(nr, p, q, kappa, k, n_st, n_unst, beta, rho, nu, tmpl, mc_ix, value_final, 
-           #B_mat, shocks, std_dev,
+           #B_mat, shocks, 
+           std_dev,
            params_deep_final)
   #mutate(cov_shocks = map(shocks, function(x){y = abs(cov(x) - diag(DIM_OUT)); names(y) = paste0("cov_el_", letters[1:(DIM_OUT^2)]); y})) %>% 
   #unnest_wider(cov_shocks) %>% 
@@ -69,11 +70,13 @@ tt_opt <- reduce(tibble_list, bind_rows) %>%
   # mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x, .y, n_ahead)))
   # mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_unique(.x, .y, lag.max=n_ahead)))
   # mutate(rmat = map(.x = irf, ~ choose_perm_sign(cand_mat = unclass(.x)[,,1], type = "dg_abs"))) %>%
-  mutate(rmat = map(.x = irf, ~ id_news_shox(.x, policy_var = 1))) %>%
-  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) 
-  # mutate(rmat = map(.x = irf, ~ optim_zr(unclass(.x)[,,1], c(1,2), opt_it = FALSE))) %>% 
-  # mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) 
-  # mutate(irf = map2(.x = std_dev, .y = irf, ~ diag(.x)%r%.y))
+  mutate(bm_mat = map(.x = beta, ~ sim_news(beta = .x, rho = 0.5, no_sim = TRUE)$sigma_L)) %>%
+  mutate(rmat = map2(.x = bm_mat, .y = irf, ~ choose_perm_sign(.x, unclass(.y)[,,1], type = "frob"))) %>% 
+  # mutate(rmat = map(.x = irf, ~ id_news_shox(.x, policy_var = 1))) %>%
+  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
+  mutate(rmat = map(.x = irf, ~ optim_zr(unclass(.x)[,,1], c(1,2), opt_it = FALSE))) %>% 
+  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
+  mutate(irf = map2(.x = std_dev, .y = irf, ~ diag(.x)%r%.y))
 
 mc_n <- unique(tt_opt$mc_ix)
 prms <- expand.grid(beta = unique(tt_opt$beta), nu = unique(tt_opt$nu))
