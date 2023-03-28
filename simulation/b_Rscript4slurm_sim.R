@@ -29,6 +29,7 @@ params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/data_list.rds"
 
 params$RESTART_W_NOISE = 0
 params$FIX_INIT = FALSE
+params$penalty_prm = 100
 
 params$AR_ORDER_MAX = 2
 params$MA_ORDER_MAX = 2
@@ -117,9 +118,13 @@ params_parallel = lapply(1:nrow(tt_optim_parallel),
 if(params$USE_PARALLEL){
   
   # Parallel computations
-  cl = makeCluster(params$N_CORES, type = "FORK")
-  mods_parallel_list <- clusterApply(cl, params_parallel, fun = hlp_parallel)
-  stopCluster(cl)
+  cl = try(makeCluster(params$N_CORES, type = "FORK"))
+  if(inherits(cl, 'try-error')){
+    mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
+  } else{
+    mods_parallel_list <- clusterApply(cl, params_parallel, fun = hlp_parallel)
+    stopCluster(cl)
+  }
   
   cat("Parallel finished \n")
 } else {

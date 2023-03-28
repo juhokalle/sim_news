@@ -96,9 +96,13 @@ params_parallel = lapply(1:nrow(tt_optim_parallel),
 if(params$USE_PARALLEL){
   
   # Parallel computations
-  cl = makeCluster(params$N_CORES, type = "FORK")
-  mods_parallel_list <- clusterApply(cl, params_parallel, fun = hlp_parallel)
-  stopCluster(cl)
+  cl = try(makeCluster(params$N_CORES, type = "FORK"))
+  if(inherits(cl, 'try-error')){
+    mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
+  } else{
+    mods_parallel_list <- clusterApply(cl, params_parallel, fun = hlp_parallel)
+    stopCluster(cl)
+  }
   
   cat("Parallel finished \n")
 } else {
