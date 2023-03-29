@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH -M ukko
 #SBATCH --job-name=svarma_simu
 #SBATCH -N 1
 #SBATCH -p short
@@ -8,8 +9,9 @@
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
 #SBATCH --array=1-150
+#SBATCH --constraint=amd
 
-N_MODS_PER_CORE=1
+N_MODS_PER_CORE=25
 MANUALLY_ASSIGNED_ID=20230329
 SRUN_CPUS_PER_TASK=16
 
