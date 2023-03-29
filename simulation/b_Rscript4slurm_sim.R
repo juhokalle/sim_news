@@ -19,7 +19,8 @@ if (params$USE_PARALLEL){
   params$N_CORES = as.integer(args[6])
 } else {
   params$N_CORES = 1
-} 
+}
+
 params$N_MODS_PER_CORE = as.integer(args[1]) # important param: specifies how many models are estimated by each array-job
 params$IX_ARRAY_JOB = as.integer(args[2]) # index of array-job. Number of array-jobs is determined from number of rows of dataframe containing all integer-values parameters
 params$SLURM_JOB_ID = as.integer(args[3])
@@ -59,7 +60,7 @@ cat(paste0("This is array task ", params$IX_ARRAY_JOB, "\n"))
 cat(paste0("The job ID is ", params$SLURM_JOB_ID, "\n"))
 cat(paste0("The manually assigned ID is ", params$MANUALLY_ASSIGNED_ID, "\n\n"))
 cat(paste0("The number of cores of this job is ", params$N_CORES, 
-           "and there are ", params$N_MODS_PER_CORE,
+           " and there are ", params$N_MODS_PER_CORE,
            " models estimated per core, for a total of ", params$N_CORES*params$N_MODS_PER_CORE, "\n\n"))
 cat(paste0("Rows ", 1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE,
            " to ", params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE,
@@ -75,7 +76,7 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt = 
   # orders (p,q)
-  tibble(p = 1, q = 2) %>% 
+  expand_grid(p = 1, q = 1:2) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
   unnest(n_unst) %>% 
@@ -120,13 +121,16 @@ if(params$USE_PARALLEL){
   # Parallel computations
   cl = try(makeCluster(params$N_CORES, type = "FORK"))
   if(inherits(cl, 'try-error')){
+    cat("Setting up cluster failed, estimate models serially \n")
     mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
+    cat("Estimation finished \n")
   } else{
+    cat("Parallel started \n")
     mods_parallel_list <- clusterApply(cl, params_parallel, fun = hlp_parallel)
     stopCluster(cl)
+    cat("Parallel finished \n")
   }
   
-  cat("Parallel finished \n")
 } else {
   mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
 }

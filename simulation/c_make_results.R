@@ -64,7 +64,7 @@ tt_opt <- reduce(tibble_list, bind_rows) %>%
                       ~fill_tmpl_whf_rev(theta = .x,
                                          tmpl = .y)$B)) %>%
   mutate(aux_ix = map2(.x = params_deep_final, .y = B_mat, ~ .x%in%c(.y))) %>%
-  mutate(rmat = map(.x = irf, ~ id_news_shox(cand_mat = .x, policy_var = 1))) %>%
+  mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(unclass(.x)[,,1]%*%.y, c(1,2), opt_it = FALSE))) %>%
   mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
   mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>%
