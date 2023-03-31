@@ -11,7 +11,7 @@ pkgs <- c("svarmawhf", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
 
 # Simulation params ####
-mc_n <- 200
+mc_n <- 5000
 sim_prm <- expand_grid(beta=c(0.5, 0.9), rho = 0.5, nobs = 250, nu = c(3, 20))
 dl <- vector("list", mc_n*nrow(sim_prm))
 # Simulation and data save ####

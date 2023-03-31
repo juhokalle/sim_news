@@ -7,7 +7,7 @@ pkgs = c("tidyverse", "svarmawhf")
 void = lapply(pkgs, library, character.only = TRUE)
 select <- dplyr::select
 params <- list(PATH = "local_data/jobid_",
-               JOBID = "202303270")
+               JOBID = "20230329")
 
 # sftp::sftp_connect(server = "turso.cs.helsinki.fi",
 #                    folder = "/proj/juhokois/sim_news/local_data/",
@@ -60,20 +60,19 @@ for (ix_file in seq_along(vec_files))
 tt_opt <- reduce(tibble_list, bind_rows) %>% 
   filter(value_final!=1e25) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
-  mutate(B_mat = map2(.x = params_deep_final, .y = tmpl,
-                      ~fill_tmpl_whf_rev(theta = .x,
-                                         tmpl = .y)$B)) %>%
-  mutate(aux_ix = map2(.x = params_deep_final, .y = B_mat, ~ .x%in%c(.y))) %>%
   mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(unclass(.x)[,,1]%*%.y, c(1,2), opt_it = FALSE))) %>%
   mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
-  mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>%
+  mutate(B_mat = map2(.x = params_deep_final, .y = tmpl,
+                      ~fill_tmpl_whf_rev(theta = .x,
+                                         tmpl = .y)$B)) %>%
+  mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y))
   # Shocks, rotated now appropriately
-  mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
+  # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   # # Shock covariance
-  mutate(Sigma = map(.x = shocks, ~ cov(.x))) %>%
+  # mutate(Sigma = map(.x = shocks, ~ cov(.x))) %>%
   # Normalize to one std dev shocks
-  mutate(irf = map2(.x = irf, .y = Sigma, ~ .x%r%diag(diag(.y)^-.5)))
+  # mutate(irf = map2(.x = irf, .y = Sigma, ~ .x%r%diag(diag(.y)^-.5)))
   # Finally multiply the irf by the resp. std devs to get units in the original scale
   # mutate(irf = map2(.x = std_dev, .y = irf, ~  diag(.x)%r%.y))
 

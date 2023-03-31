@@ -67,7 +67,6 @@ cat(paste0("Rows ", 1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS
            " from the tibble containing integer-valued parameters are chosen. \n\n"))
 cat("\n--------------------------------------------------\n")
 
-
 # Data and derived PARAMETERS ####
 DATASET = readRDS(params$FILE_NAME_INPUT)
 DIM_OUT = dim(DATASET$data_list[[1]])[2]

@@ -171,13 +171,13 @@ ff <- function(x, zero_ix, input_mat)
   sum(sqrt(diag(input_mat[row_ix,] %*% rotmat(x, ncol(input_mat))[, col_ix])^2))
 }
 
-id_policy_shox <- function(irf_arr, policy_var)
+id_policy_shox <- function(irf_arr, policy_var, n_shox)
 {
   
   dim_out <- dim(irf_arr)[1]
   n_ahead <- dim(irf_arr)[3]
   fevd_obj <- get_fevd(irf_arr, int_var = policy_var)[[1]]
-  combs <- combn(dim_out, 2)
+  combs <- combn(dim_out, n_shox)
   res_mt <- matrix(NA, n_ahead, ncol(combs))
   
   for(i in 1:n_ahead){
