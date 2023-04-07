@@ -54,7 +54,7 @@ simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
               u = t(u[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE])))
 }
 
-sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
+sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3, rg_fun)
 {
   theta <- 1/(1-beta*rho)
   ar_pol <- array(c(diag(2),                   # lag 0
@@ -68,13 +68,37 @@ sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3)
   re_mod <- armamod(sys = lmfd(ar_pol, ma_pol), sigma_L = bmat)
   if(no_sim) return(re_mod)
   data_out <- simu_y(model = re_mod,
-                     rand.gen =  function(x) stats::rt(x, nu),
+                     rand.gen =  rg_fun,
                      n.burnin = 1000,
                      n.obs = nobs)
   return(list(y = data_out, 
               mod = re_mod, 
               prms = c("beta" = beta, "rho" = rho, "nobs" = nobs, "nu" = nu))
          )
+}
+
+mixed_marg_dists <- function(dim_out, nu)
+{
+  function(x) c(replicate(x/dim_out, c(rnorm(2), stats::rt(dim_out-2, nu))))
+}
+
+get_simu_model <- function(mod_tmpl, imp_mat)
+{
+  root_flag <- FALSE
+  scl_prm <- 1
+  n_unst <- k_kappa2nunst(q = mod_tmpl$input_orders$MAorder,
+                          dim_out = mod_tmpl$input_orders$dim_out,
+                          k = mod_tmpl$input_orders$k,
+                          kappa = mod_tmpl$input_orders$kappa)
+  while(!root_flag){
+    arma0 <- armamod_whf(runif(mod_tmpl$n_par, -1*scl_prm, 1*scl_prm), mod_tmpl)
+    root_flag <- sum(abs(eigen(companion_matrix(arma0$polm_ma))$values)>1)==n_unst
+    scl_prm <- scl_prm-.05
+  }
+
+  Bmat <- diag(diag(imp_mat))
+  ma_polm <- arma0$polm_ma%r%(solve(unclass(arma0$polm_ma)[,,1])%*%imp_mat%*%solve(Bmat))
+  armamod(lmfd(arma0$polm_ar, ma_polm), Bmat)
 }
 
 # BOOTSTRAP
@@ -508,4 +532,18 @@ hlp_parallel = function(list_input)
                              params     = params, 
                              DATASET    = list_input[[3]],
                              shock_distr = list_input[[4]]))
+}
+
+k_kappa2nunst <- function(q, dim_out, k, kappa){
+  
+  kk <- c(k, kappa)
+  hlp_tbl <- tibble(n_unst = map(q, ~0:(dim_out*.x))) %>% 
+    unnest(n_unst) %>% 
+    mutate(n_st = dim_out * q - n_unst) %>% 
+    mutate(kappa = n_unst %/% dim_out,
+           k = n_unst %% dim_out)
+  hlp_tbl %>% 
+    filter(k == kk[1], kappa == kk[2]) %>% 
+    dplyr::select(n_unst) %>% 
+    as.double
 }
