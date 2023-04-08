@@ -7,7 +7,7 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
-nrep_est <- 10
+nrep_est <- 20
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -51,23 +51,10 @@ params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 sim_prm <- expand_grid(beta = c(0.5, 0.9), 
                        rho = 0.5, 
                        nobs = 250, 
-                       nu = c(3, 20))[(params$IX_ARRAY_JOB-1)%/%(params$SLURM_ARRAY_TASK_MAX/nrow(sim_prm))+1, ]
-
-tt = 
-  # orders (p,q)
-  expand_grid(p = 1, q = 1:2) %>% 
-  # number of unstable zeros
-  mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
-  unnest(n_unst) %>% 
-  mutate(n_st = DIM_OUT * q - n_unst) %>% 
-  mutate(kappa = n_unst %/% DIM_OUT,
-         k = n_unst %% DIM_OUT) %>% 
-  # assume correct specification w.r.t. MA polm
-  filter(n_unst==1) %>% 
-  # VAR benchmark
-  bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
-  # this way of including data makes it convenient for slicing
-  expand_grid(sim_prm)
+                       nu = c(3, 20))
+sim_prm <- sim_prm[(params$IX_ARRAY_JOB-1)%/%(params$SLURM_ARRAY_TASK_MAX/nrow(sim_prm))+1, ]
+DIM_OUT <- 2
+params$DIM_OUT = DIM_OUT
 
 # SIMULATION SPECS: TARGET PATH FOR SAVING RESULTS
 pap = pap_factory(params$PATH_RESULTS_HELPER)
@@ -77,20 +64,34 @@ new_dir_path = pap(paste0("jobid_", params$MANUALLY_ASSIGNED_ID))
 
 if (!dir.exists(new_dir_path)){
   dir.create(new_dir_path)
+  saveRDS(tibble(), paste0(new_dir_path, "/tt_full.rds"))
 }
 
+tibble_out <- tibble()
 for(i in 1:nrep_est){
   
   # GENERATE DATA
   DATASET = apply(X = do.call(what = sim_news, 
-                              args = c(sim_prm, rg_fun = function(x) stats::rt(x, sim_prm$beta)))$y$y,
+                              args = c(sim_prm, rg_fun = function(x) stats::rt(x, sim_prm$nu)))$y$y,
                   MARGIN = 2,
                   FUN = function(x) x-mean(x))
-  DIM_OUT = dim(DATASET)[2]
-  params$DIM_OUT = DIM_OUT
   
   # Tibble with integer-valued parameters
-  tt = tt %>% expand_grid(data_list = list(DATASET))
+  tt =
+    # orders (p,q)
+    expand_grid(p = 1, q = 1:2) %>% 
+    # number of unstable zeros
+    mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
+    unnest(n_unst) %>% 
+    mutate(n_st = DIM_OUT * q - n_unst) %>% 
+    mutate(kappa = n_unst %/% DIM_OUT,
+           k = n_unst %% DIM_OUT) %>% 
+    # assume correct specification w.r.t. MA polm
+    filter(n_unst==1) %>% 
+    # VAR benchmark
+    bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
+    # this way of including data makes it convenient for slicing
+    expand_grid(sim_prm, data_list = list(DATASET))
   
   # Parallel setup ####
   tt_optim_parallel = tt %>% 
@@ -126,11 +127,15 @@ for(i in 1:nrep_est){
     mutate(B_mat = map2(.x = params_deep_final, .y = tmpl,
                         ~fill_tmpl_whf_rev(theta = .x,
                                            tmpl = .y)$B)) %>%
-    mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y))
+    mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>% 
+    bind_rows(tibble_out)
   
-  tibble_id <- paste0("tibble_",
-                      paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
-                      paste(sample(letters, 5), collapse = ""))
+  # tibble_id <- paste0("tibble_",
+  #                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
+  #                     paste(sample(letters, 5), collapse = ""))
   
-  saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
 }
+paste0(new_dir_path, "/tt_full.rds") %>% 
+  readRDS() %>% 
+  bind_rows(tibble_out) %>% 
+  saveRDS(paste0(new_dir_path, "/tt_full.rds"))
