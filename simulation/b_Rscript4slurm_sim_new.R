@@ -127,7 +127,8 @@ for(i in 1:nrep_est){
   
   tibble_id <- paste0("/tibble_",
                       paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
-                      paste(sample(letters, 5), collapse = ""))
+                      paste(sample(letters, 5), collapse = ""),
+                      ".rds")
   
   saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
 }
