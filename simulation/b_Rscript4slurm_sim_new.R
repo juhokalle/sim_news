@@ -7,7 +7,7 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
-nrep_est <- 20
+nrep_est <- 10
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -24,9 +24,6 @@ params$RESTART_W_NOISE = 0
 params$FIX_INIT = FALSE
 params$penalty_prm = 100
 
-params$AR_ORDER_MAX = 2
-params$MA_ORDER_MAX = 2
-
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
@@ -36,14 +33,14 @@ params$MAXIT_NM_GAUSS = 3000
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
-params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
+params$MAXIT_BFGS_LAPLACE = 500
+params$MAXIT_NM_LAPLACE = 3000
 
 params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
-params$MAXIT_NM_SGT = 3000 # default for NM is 500
+params$MAXIT_BFGS_SGT = 1000
+params$MAXIT_NM_SGT = 3000
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
@@ -64,7 +61,6 @@ new_dir_path = pap(paste0("jobid_", params$MANUALLY_ASSIGNED_ID))
 
 if (!dir.exists(new_dir_path)){
   dir.create(new_dir_path)
-  saveRDS(tibble(), paste0(new_dir_path, "/tt_full.rds"))
 }
 
 tibble_out <- tibble()
@@ -127,15 +123,11 @@ for(i in 1:nrep_est){
     mutate(B_mat = map2(.x = params_deep_final, .y = tmpl,
                         ~fill_tmpl_whf_rev(theta = .x,
                                            tmpl = .y)$B)) %>%
-    mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>% 
-    bind_rows(tibble_out)
+    mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y))
   
-  # tibble_id <- paste0("tibble_",
-  #                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
-  #                     paste(sample(letters, 5), collapse = ""))
+  tibble_id <- paste0("/tibble_",
+                      paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
+                      paste(sample(letters, 5), collapse = ""))
   
+  saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
 }
-paste0(new_dir_path, "/tt_full.rds") %>% 
-  readRDS() %>% 
-  bind_rows(tibble_out) %>% 
-  saveRDS(paste0(new_dir_path, "/tt_full.rds"))
