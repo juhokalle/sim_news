@@ -84,21 +84,28 @@ mixed_marg_dists <- function(dim_out, nu)
 
 get_simu_model <- function(mod_tmpl, imp_mat)
 {
-  root_flag <- FALSE
+  root_flag <- TRUE
   scl_prm <- 1
   n_unst <- k_kappa2nunst(q = mod_tmpl$input_orders$MAorder,
                           dim_out = mod_tmpl$input_orders$dim_out,
                           k = mod_tmpl$input_orders$k,
                           kappa = mod_tmpl$input_orders$kappa)
-  while(!root_flag){
-    arma0 <- armamod_whf(runif(mod_tmpl$n_par, -1*scl_prm, 1*scl_prm), mod_tmpl)
-    root_flag <- sum(abs(eigen(companion_matrix(arma0$polm_ma))$values)>1)==n_unst
+  
+  while(root_flag && scl_prm > 0){
+    mod_prms <- rnorm(mod_tmpl$n_par, mean = 0, sd = scl_prm)
+    arma_whf <- fill_tmpl_whf_rev(mod_prms, mod_tmpl)
+    arma_std <- armamod_whf(mod_prms, mod_tmpl)
+    Bmat <- diag(diag(imp_mat))
+    ma_polm <- arma_std$polm_ma%r%(solve(unclass(arma_std$polm_ma)[,,1])%*%imp_mat%*%solve(Bmat))
+    # Check root constraints
+    ar_flag <- any(abs(eigen(companion_matrix(arma_whf$polm_ar))$val) > 1)
+    ma_bwd_flag <- any(abs(eigen(companion_matrix(arma_whf$polm_ma_bwd))$val) > 1)
+    ma_fwd_flag <- any(abs(eigen(companion_matrix(arma_whf$polm_ma_fwd))$val) > 1)
+    ma_flag <- !(sum(abs(eigen(companion_matrix(ma_polm))$val)>1)==n_unst)
+    root_flag <- ar_flag || ma_bwd_flag || ma_fwd_flag || ma_flag
     scl_prm <- scl_prm-.05
   }
-
-  Bmat <- diag(diag(imp_mat))
-  ma_polm <- arma0$polm_ma%r%(solve(unclass(arma0$polm_ma)[,,1])%*%imp_mat%*%solve(Bmat))
-  armamod(lmfd(arma0$polm_ar, ma_polm), Bmat)
+  armamod(lmfd(arma_std$polm_ar, ma_polm), Bmat)
 }
 
 # BOOTSTRAP
