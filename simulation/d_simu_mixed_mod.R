@@ -7,8 +7,39 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
-set.seed(1303)
 nrep_est <- 10
+DIM_OUT <- 3
+
+# Generate simu model
+set.seed(554)
+phimat <- matrix(c(.74, .13, .24,
+                   -.09,-.44, .3,
+                   -.16,-.06, .53), 
+                 ncol = DIM_OUT, nrow = DIM_OUT)
+Bmat <- matrix(c(2.32, .72, .98, 
+                 -.48, 2.32, 1.57, 
+                 -.41, -.22, .76),
+               ncol = DIM_OUT, nrow = DIM_OUT)
+sign_mat <- sign(Bmat)
+a1 <- phimat + Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)
+a2 <- -Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)%*%phimat
+
+ar_polm <- polm(abind::abind(diag(DIM_OUT), -a1, -a2, along = 3))
+n_unst <- 0
+
+while(n_unst!=1){
+  m0 <- with(svd(Bmat), u%*%diag(d))
+  m1 <- matrix(runif(DIM_OUT^2, 0, 1), DIM_OUT, DIM_OUT)
+  while(any(Im(eigen(solve(m0)%*%m1)$values)!=0)){
+    m1 <- matrix(runif(DIM_OUT^2, 0, 1), DIM_OUT, DIM_OUT)
+  }
+  m1 <- 2*m1/max(eigen(solve(m0)%*%m1)$values)
+  ma_polm <- polm(abind::abind(m0, -m1, along = 3))
+  n_unst <- sum(abs(zeroes(ma_polm))<1)
+}
+dgp_mod <- armamod(sys = lmfd(ar_polm, ma_polm), # reduced-from varma 
+                   sigma_L = with(svd(Bmat), t(v))) # with m0, sigma_L makes impact mat align with Bmat
+rm(.Random.seed)
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -44,27 +75,7 @@ params$MAXIT_BFGS_SGT = 1000
 params$MAXIT_NM_SGT = 3000
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
-params$DIM_OUT <- 4
-DIM_OUT <- params$DIM_OUT
-tmpl0 <- tmpl_whf_rev(dim_out = DIM_OUT,
-                      ARorder = 1,
-                      MAorder = 2,
-                      kappa = 0,
-                      k = 1,
-                      shock_distr = "gaussian")
-ar_flag <- imp_flag <- TRUE
-while(ar_flag || imp_flag)
-{
-  imp_mat <- matrix(rnorm(DIM_OUT^2, 0, sqrt(2)), DIM_OUT, DIM_OUT)
-  imp_mat <- imp_mat*sign(imp_mat)
-  sign_mat <- matrix(1, DIM_OUT, DIM_OUT)
-  sign_mat[upper.tri(sign_mat)] <- -1
-  imp_mat <- imp_mat*sign_mat
-  dgp_mod <- tmpl_whf_rev(DIM_OUT, 1, 2, 0, 1, "gaussian") %>%  
-    get_simu_model(imp_mat)
-  ar_flag <- min(abs(zeroes(dgp_mod$sys$a)))>1.2
-  imp_flag <- max(abs(imp_mat))/min(abs(imp_mat))>4
-}
+params$DIM_OUT <- DIM_OUT
 
 # SIMULATION SPECS: TARGET PATH FOR SAVING RESULTS
 pap = pap_factory(params$PATH_RESULTS_HELPER)
@@ -83,7 +94,7 @@ for(i in 1:nrep_est){
   DATASET = apply(X = do.call(what = simu_y, 
                               args = list(model = dgp_mod, 
                                           n.obs = 250,
-                                          rand.gen = mixed_marg_dists(dim_out, 3),
+                                          rand.gen = mixed_marg_dists(DIM_OUT, 3),
                                           n.burnin = 500))$y,
                   MARGIN = 2,
                   FUN = function(x) x-mean(x))
@@ -91,7 +102,7 @@ for(i in 1:nrep_est){
   # Tibble with integer-valued parameters
   tt =
     # orders (p,q)
-    expand_grid(p = 1, q = 2) %>% 
+    expand_grid(p = 2, q = 1) %>% 
     # number of unstable zeros
     mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
     unnest(n_unst) %>% 
@@ -138,7 +149,7 @@ for(i in 1:nrep_est){
                         ~fill_tmpl_whf_rev(theta = .x,
                                            tmpl = .y)$B)) %>%
     mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>% 
-    select(p, q, kappa, k, n_st, n_unst, beta, rho, nu, value_final, irf)
+    select(p, q, kappa, k, n_st, n_unst, value_final, irf)
   
   tibble_id <- paste0("/tibble_",
                       paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
@@ -146,4 +157,6 @@ for(i in 1:nrep_est){
                       ".rds")
   
   saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
+  if(!is.null(warnings())) print(warnings())
 }
+
