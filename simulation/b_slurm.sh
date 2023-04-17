@@ -8,11 +8,11 @@
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-25
+#SBATCH --array=1-10
 #SBATCH --constraint=amd
 
 MANUALLY_ASSIGNED_ID=20230408
 
 module load R/4.2.1
 
-srun Rscript b_Rscript4slurm_sim_new.R $SLURM_ARRAY_TASK_ID $SLURM_JOB_ID $MANUALLY_ASSIGNED_ID $SLURM_ARRAY_TASK_MAX
+srun Rscript d_simu_mixed_mod.R $SLURM_ARRAY_TASK_ID $SLURM_JOB_ID $MANUALLY_ASSIGNED_ID $SLURM_ARRAY_TASK_MAX

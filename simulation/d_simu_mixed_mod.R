@@ -91,10 +91,18 @@ tibble_out <- tibble()
 for(i in 1:nrep_est){
   
   # GENERATE DATA
+  if(params$IX_ARRAY_JOB%%2)
+    {
+    rg_fun <- list(fun =  mixed_marg_dists(DIM_OUT, 3))
+    rg_fun$lbl <- "mixed"
+    } else {
+    rg_fun <- list(fun = function(x) stats::rt(x, 3))
+    rg_fun$lbl <- "tdist"
+    }
   DATASET = apply(X = do.call(what = simu_y, 
                               args = list(model = dgp_mod, 
-                                          n.obs = 250,
-                                          rand.gen = mixed_marg_dists(DIM_OUT, 3),
+                                          n.obs = if(nrep_est>(nrep_est/2)) 1000 else 250,
+                                          rand.gen = rg_fun$fun,
                                           n.burnin = 500))$y,
                   MARGIN = 2,
                   FUN = function(x) x-mean(x))
@@ -137,7 +145,7 @@ for(i in 1:nrep_est){
     mutate(shock_distr = "tdist") %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
     mutate(res = pmap(., pmap_get_residuals_once)) %>% 
-    select(p, q, kappa, k, n_st, n_unst, beta, rho, nu, value_final,
+    select(p, q, kappa, k, n_st, n_unst, value_final,
            params_deep_final,
            tmpl) %>% 
     mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
@@ -145,11 +153,12 @@ for(i in 1:nrep_est){
                                                    cand_mat = unclass(.x)[,,1], 
                                                    type = "frob"))) %>%
     mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
-    mutate(B_mat = map2(.x = params_deep_final,.y = tmpl,
-                        ~fill_tmpl_whf_rev(theta = .x,
-                                           tmpl = .y)$B)) %>%
-    mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>% 
-    select(p, q, kappa, k, n_st, n_unst, value_final, irf)
+    # mutate(B_mat = map2(.x = params_deep_final,.y = tmpl,
+    #                     ~fill_tmpl_whf_rev(theta = .x,
+    #                                        tmpl = .y)$B)) %>%
+    # mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>% 
+    select(p, q, kappa, k, n_st, n_unst, value_final, irf) %>% 
+    expand_grid(nobs = nrow(DATASET), rg = rg_fun$lbl)
   
   tibble_id <- paste0("/tibble_",
                       paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
