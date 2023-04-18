@@ -7,10 +7,10 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
-nrep_est <- 10
+nrep_est <- 20
 DIM_OUT <- 3
 
-# Generate simu model
+# Create simu model
 set.seed(554)
 phimat <- matrix(c(.74, .13, .24,
                    -.09,-.44, .3,
@@ -91,17 +91,16 @@ tibble_out <- tibble()
 for(i in 1:nrep_est){
   
   # GENERATE DATA
-  if(params$IX_ARRAY_JOB%%2)
-    {
-    rg_fun <- list(fun =  mixed_marg_dists(DIM_OUT, 3))
-    rg_fun$lbl <- "mixed"
+  if(params$IX_ARRAY_JOB%%2){
+    rg_fun <- list(fun =  mixed_marg_dists(DIM_OUT, 3),
+                   lbl = "mixed")
     } else {
-    rg_fun <- list(fun = function(x) stats::rt(x, 3))
-    rg_fun$lbl <- "tdist"
+    rg_fun <- list(fun = function(x) stats::rt(x, 3),
+                   lbl = "tdist")
     }
   DATASET = apply(X = do.call(what = simu_y, 
                               args = list(model = dgp_mod, 
-                                          n.obs = if(nrep_est>(nrep_est/2)) 1000 else 250,
+                                          n.obs = if(i>(nrep_est/2)) 1000 else 250,
                                           rand.gen = rg_fun$fun,
                                           n.burnin = 500))$y,
                   MARGIN = 2,

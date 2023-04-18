@@ -8,7 +8,7 @@
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-10
+#SBATCH --array=1-20
 #SBATCH --constraint=amd
 
 MANUALLY_ASSIGNED_ID=20230408
