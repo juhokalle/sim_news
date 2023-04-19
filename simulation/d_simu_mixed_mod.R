@@ -8,10 +8,9 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
 nrep_est <- 20
-DIM_OUT <- 3
 
-# Create simu model
-set.seed(554)
+# SIMU MODEL ####
+DIM_OUT <- 3
 phimat <- matrix(c(.74, .13, .24,
                    -.09,-.44, .3,
                    -.16,-.06, .53), 
@@ -23,23 +22,11 @@ Bmat <- matrix(c(2.32, .72, .98,
 sign_mat <- sign(Bmat)
 a1 <- phimat + Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)
 a2 <- -Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)%*%phimat
-
 ar_polm <- polm(abind::abind(diag(DIM_OUT), -a1, -a2, along = 3))
 n_unst <- 0
-
-while(n_unst!=1){
-  m0 <- with(svd(Bmat), u%*%diag(d))
-  m1 <- matrix(runif(DIM_OUT^2, 0, 1), DIM_OUT, DIM_OUT)
-  while(any(Im(eigen(solve(m0)%*%m1)$values)!=0)){
-    m1 <- matrix(runif(DIM_OUT^2, 0, 1), DIM_OUT, DIM_OUT)
-  }
-  m1 <- 2*m1/max(eigen(solve(m0)%*%m1)$values)
-  ma_polm <- polm(abind::abind(m0, -m1, along = 3))
-  n_unst <- sum(abs(zeroes(ma_polm))<1)
-}
+ma_polm <- polm(abind::abind(diag(3), Bmat%*%diag(c(0,0,2))%*%solve(Bmat), along = 3))
 dgp_mod <- armamod(sys = lmfd(ar_polm, ma_polm), # reduced-from varma 
-                   sigma_L = with(svd(Bmat), t(v))) # with m0, sigma_L makes impact mat align with Bmat
-rm(.Random.seed)
+                   sigma_L = Bmat) # with m0, sigma_L makes impact mat align with Bmat
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -100,7 +87,7 @@ for(i in 1:nrep_est){
     }
   DATASET = apply(X = do.call(what = simu_y, 
                               args = list(model = dgp_mod, 
-                                          n.obs = if(i>(nrep_est/2)) 1000 else 250,
+                                          n.obs = if(i>(nrep_est/2)) 250 else 1000,
                                           rand.gen = rg_fun$fun,
                                           n.burnin = 500))$y,
                   MARGIN = 2,
