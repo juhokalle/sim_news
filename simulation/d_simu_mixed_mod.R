@@ -23,11 +23,11 @@ sign_mat <- sign(Bmat)
 a1 <- phimat + Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)
 a2 <- -Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)%*%phimat
 ar_polm <- abind::abind(diag(DIM_OUT), -a1, -a2, along = 3) %>% polm()
-ma_polm <- abind::abind(with(svd(Bmat), u%*%diag(d)),
+ma_polm <- abind::abind(diag(DIM_OUT),
                         Bmat%*%diag(c(0, 0.5, 2))%*%solve(Bmat), 
                         along = 3) %>% polm
 dgp_mod <- armamod(sys = lmfd(ar_polm, ma_polm), # reduced-from varma 
-                   sigma_L = with(svd(Bmat), t(v))) # with m0, sigma_L makes impact mat align with Bmat
+                   sigma_L = Bmat) # with m0, sigma_L makes impact mat align with Bmat
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
