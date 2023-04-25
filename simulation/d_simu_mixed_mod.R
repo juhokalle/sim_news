@@ -22,11 +22,12 @@ Bmat <- matrix(c(2.32, .72, .98,
 sign_mat <- sign(Bmat)
 a1 <- phimat + Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)
 a2 <- -Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)%*%phimat
-ar_polm <- polm(abind::abind(diag(DIM_OUT), -a1, -a2, along = 3))
-n_unst <- 0
-ma_polm <- polm(abind::abind(diag(3), Bmat%*%diag(c(0,0,2))%*%solve(Bmat), along = 3))
+ar_polm <- abind::abind(diag(DIM_OUT), -a1, -a2, along = 3) %>% polm()
+ma_polm <- abind::abind(with(svd(Bmat), u%*%diag(d)),
+                        Bmat%*%diag(c(0, 0.5, 2))%*%solve(Bmat), 
+                        along = 3) %>% polm
 dgp_mod <- armamod(sys = lmfd(ar_polm, ma_polm), # reduced-from varma 
-                   sigma_L = Bmat) # with m0, sigma_L makes impact mat align with Bmat
+                   sigma_L = with(svd(Bmat), t(v))) # with m0, sigma_L makes impact mat align with Bmat
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -139,10 +140,6 @@ for(i in 1:nrep_est){
                                                    cand_mat = unclass(.x)[,,1], 
                                                    type = "frob"))) %>%
     mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
-    # mutate(B_mat = map2(.x = params_deep_final,.y = tmpl,
-    #                     ~fill_tmpl_whf_rev(theta = .x,
-    #                                        tmpl = .y)$B)) %>%
-    # mutate(B_mat = map2(.x = B_mat, .y = rmat, ~ .x%*%.y)) %>% 
     select(p, q, kappa, k, n_st, n_unst, value_final, irf) %>% 
     expand_grid(nobs = nrow(DATASET), rg = rg_fun$lbl)
   
@@ -152,6 +149,5 @@ for(i in 1:nrep_est){
                       ".rds")
   
   saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
-  if(!is.null(warnings())) print(warnings())
 }
 

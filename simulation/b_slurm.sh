@@ -4,14 +4,14 @@
 #SBATCH -N 1
 #SBATCH -p short
 #SBATCH -t 01:00:00
-#SBATCH -n 40
+#SBATCH -n 20
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
 #SBATCH --array=1-20
 #SBATCH --constraint=amd
 
-MANUALLY_ASSIGNED_ID=20230408
+MANUALLY_ASSIGNED_ID=20230425
 
 module load R/4.2.1
 
