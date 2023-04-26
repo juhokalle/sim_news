@@ -7,7 +7,7 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
-nrep_est <- 20
+nrep_est <- 1
 
 # SIMU MODEL ####
 DIM_OUT <- 3
@@ -79,16 +79,18 @@ tibble_out <- tibble()
 for(i in 1:nrep_est){
   
   # GENERATE DATA
-  if(params$IX_ARRAY_JOB%%2){
-    rg_fun <- list(fun =  mixed_marg_dists(DIM_OUT, 3),
-                   lbl = "mixed")
+  rg_fun <-
+    if(params$IX_ARRAY_JOB%%2){
+      list(fun =  mixed_marg_dists(DIM_OUT, 3),
+           lbl = "mixed")
     } else {
-    rg_fun <- list(fun = function(x) stats::rt(x, 3),
-                   lbl = "tdist")
+      list(fun = function(x) stats::rt(x, 3),
+           lbl = "tdist")
     }
+  
   DATASET = apply(X = do.call(what = simu_y, 
                               args = list(model = dgp_mod, 
-                                          n.obs = if(i>(nrep_est/2)) 250 else 1000,
+                                          n.obs = 25000,
                                           rand.gen = rg_fun$fun,
                                           n.burnin = 500))$y,
                   MARGIN = 2,
@@ -107,7 +109,9 @@ for(i in 1:nrep_est){
     # assume correct specification w.r.t. MA polm
     filter(n_unst==1) %>% 
     # this way of including data makes it convenient for slicing
-    expand_grid(data_list = list(DATASET))
+    expand_grid(data_list = list(DATASET)) %>% 
+    mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
+    mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x/sd(x))))
   
   # Parallel setup ####
   tt_optim_parallel = tt %>% 
@@ -131,18 +135,15 @@ for(i in 1:nrep_est){
     mutate(tt) %>% 
     mutate(shock_distr = "tdist") %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
-    mutate(res = pmap(., pmap_get_residuals_once)) %>% 
-    select(p, q, kappa, k, n_st, n_unst, value_final,
-           params_deep_final,
-           tmpl) %>% 
-    mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
+    mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 12))) %>% 
+    mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>% 
     mutate(rmat = map(.x = irf, ~ choose_perm_sign(target_mat = sign_mat, 
                                                    cand_mat = unclass(.x)[,,1], 
                                                    type = "frob"))) %>%
     mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
-    select(p, q, kappa, k, n_st, n_unst, value_final, irf) %>% 
-    expand_grid(nobs = nrow(DATASET), rg = rg_fun$lbl)
-  
+    expand_grid(nobs = nrow(DATASET), rg = rg_fun$lbl) %>% 
+    select(p, q, kappa, k, n_st, n_unst, value_final, irf, nobs, rg)
+    
   tibble_id <- paste0("/tibble_",
                       paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
                       paste(sample(letters, 5), collapse = ""),
