@@ -71,8 +71,10 @@ pap = pap_factory(params$PATH_RESULTS_HELPER)
 # New directory for saving all tibbles
 new_dir_path = pap(paste0("jobid_", params$MANUALLY_ASSIGNED_ID))
 
-if (!dir.exists(new_dir_path)){
-  dir.create(new_dir_path)
+if(params$IX_ARRAY_JOB==1){
+  if (!dir.exists(new_dir_path)){
+    dir.create(new_dir_path)
+  }
 }
 
 tibble_out <- tibble()
@@ -90,7 +92,7 @@ for(i in 1:nrep_est){
   
   DATASET = apply(X = do.call(what = simu_y, 
                               args = list(model = dgp_mod, 
-                                          n.obs = 25000,
+                                          n.obs = 100000,
                                           rand.gen = rg_fun$fun,
                                           n.burnin = 500))$y,
                   MARGIN = 2,

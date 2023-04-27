@@ -3,15 +3,15 @@
 #SBATCH --job-name=svarma_simu
 #SBATCH -N 1
 #SBATCH -p short
-#SBATCH -t 01:00:00
-#SBATCH -n 20
+#SBATCH -t 03:00:00
+#SBATCH -n 1
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-20
+#SBATCH --array=1-2
 #SBATCH --constraint=amd
 
-MANUALLY_ASSIGNED_ID=20230425
+MANUALLY_ASSIGNED_ID=20230427
 
 module load R/4.2.1
 
