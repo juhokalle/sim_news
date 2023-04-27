@@ -43,6 +43,7 @@ params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
 params$RESTART_W_NOISE = 0
 params$FIX_INIT = FALSE
 params$penalty_prm = 100
+params$IC <- FALSE
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
