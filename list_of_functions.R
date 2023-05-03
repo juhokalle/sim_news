@@ -554,3 +554,176 @@ k_kappa2nunst <- function(q, dim_out, k, kappa){
     dplyr::select(n_unst) %>% 
     as.double
 }
+
+# Tools related to structrual models
+get_struc_mat <- function(param_list, model_type = c("dynamic", "static", "r_smooth")){
+
+  if(model_type == "dynamic"){
+    
+    param_vec <- c("beta", "alfa", "kappa", "gamma", "delta_x", 
+                   "tau_x", "tau_pi", "tau_r", 
+                   "rho_x", "rho_pi", "rho_r")
+    check_vec <- param_vec%in%names(param_list)
+    if(!all(check_vec)) stop("The following parameters are missing: ", paste(param_vec[check_vec], collapse = ", "))
+    
+    Kmat <- with(param_list, matrix(c(1, -kappa, -tau_x*(1-tau_r),
+                                      0, 1, -tau_pi*(1-tau_r),
+                                      delta_x, 0, 1), 3, 3))
+    
+    Amat <- with(param_list, matrix(c(1-gamma, 0, 0,
+                                      0, alfa/(1+alfa*beta), 0,
+                                      0, 0, tau_r), 3, 3))
+    Bmat <- with(param_list, matrix(c(gamma, 0, 0,
+                                      delta_x, beta/(1+alfa*beta), 0,
+                                      0, 0, 0), 3, 3))
+    Hmat <- diag(3)
+    
+    Dmat <- with(param_list, diag(c(rho_x, rho_pi, rho_r)))
+    
+  } else if(model_type == "static"){
+    
+    param_vec <- c("beta", "kappa",
+                   "phi_pi", "phi_y",
+                   "sigma_d", "sigma_s", "sigma_m")
+    check_vec <- param_vec%in%names(param_list)
+    if(!all(check_vec)) stop("The following parameters are missing: ", paste(param_vec[check_vec], collapse = ", "))
+    
+    Kmat <- with(param_list, matrix(c(1, -kappa, -phi_y,
+                                      0, 1, -phi_pi,
+                                      1, 0, 1), 3, 3))
+    
+    Amat <- matrix(0, 3, 3)
+    
+    Bmat <- with(param_list, matrix(c(1, 0, 0,
+                                      1, beta, 0,
+                                      0, 0, 0), 3, 3))
+    
+    Hmat <- with(param_list, diag(c(sigma_d, sigma_s, sigma_m)))
+    
+    Dmat <- matrix(0, 3, 3)
+  
+  } else if(model_type == "r_smooth"){ 
+    
+    param_vec <- c("tau", "kappa", "rho_R", "psi_x", "beta", "psi_pi")
+    check_vec <- param_vec%in%names(param_list)
+    if(!all(check_vec)) stop("The following parameters are missing: ", paste(param_vec[check_vec], collapse = ", "))
+    
+    Kmat <- with(param_list, matrix(c(1, -kappa, -(1-rho_R)*psi_x,
+                                      0, 1, 0,
+                                      tau, 0, 1), 3, 3))
+    
+    Amat <- with(param_list, matrix(c(rep(0,8), rho_R), 3, 3))
+    
+    Bmat <- with(param_list, matrix(c(1, 0, 0,
+                                      tau, beta, (1-rho_R)*psi_pi, 
+                                      0, 0, 0), 3, 3))
+    
+    Hmat <- with(param_list, matrix(c(1, 0, 0, 
+                                      0, -kappa, -(1-rho_R)*psi_x,
+                                      0, 0, 1), 3, 3))
+    Dmat <- matrix(0, 3, 3)
+    
+  } else{
+    stop("Supply a valid model type.")
+  }
+  
+  list(Kmat=Kmat, Amat=Amat, Bmat=Bmat, Hmat=Hmat, Dmat=Dmat)
+}
+
+# The system is of the form
+# K * x[t] = A * x[t-1] + B * E(x[t+1]|I[t])
+#                + H * w[t]
+# w[t] = D * w[t-1] + v[t]
+
+solve_re_mod_bp <- function(Kmat, Amat, Bmat, Hmat, Dmat, eps_val){
+  
+  # Transform System to Canonical Form:
+  # x[t] = Ahat * x[t-1] + Bhat * E(x[t+1]|I[t]) 
+  #        + Hhat * w[t]
+  Ahat = solve(Kmat)%*%Amat
+  Bhat = solve(Kmat)%*%Bmat
+  Hhat = solve(Kmat)%*%Hmat
+  
+  dim1 = dim(Amat)[1]
+  dim2 = dim(Amat)[2]
+  
+  # Compute Matrix C Using Brute-Force Iterative Procedure
+  Cmat = diag(dim1)       # Initial Condition
+  Fmat = diag(dim1)       # Initial Condition
+  iter <- 1
+  while(iter == 1 || crit1 >= eps_val || crit2 >= eps_val){
+    Fi = solve(diag(dim1)-Bhat%*%Cmat)%*%Bhat
+    Ci = solve(diag(dim1)-Bhat%*%Cmat)%*%Ahat
+    crit1 = max(abs(Fi-Fmat))
+    crit2 = max(abs(Ci-Cmat))
+    Cmat = Ci 
+    Fmat = Fi
+    iter = iter+1
+    if(iter > 500){ 
+      stop("The brute-force iterative procedure did not converge after 500 iterations.")
+    }
+  }
+  
+  Gmat <- solve(diag(dim1)-Bhat%*%Cmat)%*%Hhat
+  Pmat <- Gmat
+  iter <- 1
+  while(iter==1 || crit1>eps1){
+    F_power_j <- if(iter==1) Fmat else F_power_j%*%Fmat
+    D_power_j <- if(iter==1) Dmat else D_power_j%*%Dmat
+    Pmat_j <- F_power_j %*% Gmat %*% D_power_j
+    crit1 <- max(abs(Pmat_j))
+    Pmat = Pmat + Pmat_j
+    iter <- iter + 1
+    if(iter > 500){ 
+      stop("The iterative procedure for structural impact matrix P did not converge after 500 iterations.")
+    }
+  }
+  var_polm <- abind::abind(diag(dim1),
+                           -Pmat%*%Dmat%*%solve(Pmat) - Cmat, 
+                           Pmat%*%Dmat%*%solve(Pmat)%*%Cmat,
+                           along = 3)
+  armamod(lmfd(a = polm(var_polm), b = diag(dim1)), sigma_L = Pmat)
+}
+
+plot_irfs <- function(){
+  for(prm_ix in 1:nrow(prms)){
+    for(var_ix in 1:2){
+      for(shock_ix in 1:2){
+        irf_arr <- tt_full %>%
+          filter(beta == prms[prm_ix,1],
+                 nu == prms[prm_ix,2],
+                 q==2) %>% 
+          # mutate(value_aic = map2_dbl(.x = value_final, .y = tmpl, ~  .x + .y$n_par * 2/250)) %>%
+          # group_by(q) %>%
+          # slice_min(value_aic) %>%
+          # ungroup() %>% 
+          # filter(mb_length == prms[prm_ix]) %>%
+          mutate(irf = map(.x=irf,~.x %>% unclass)) %>%
+          pull(irf) %>%
+          abind::abind(along=4)
+        irf_qt <- apply(X = irf_arr[var_ix,shock_ix,,],
+                        1, 
+                        quantile, 
+                        probs= c(.05, .14, .5, .86, .95))
+        n_quantiles <- 1:dim(irf_qt)[1]
+        n_ahead <- dim(irf_qt)[2]-1
+        plot(0:n_ahead,
+             irf_qt[median(n_quantiles),], 
+             type = "l", 
+             ylim = c(min(irf_qt),
+                      max(irf_qt)),
+             # main = paste0("mb_len = ", prms[prm_ix])
+             main = paste("beta: ", prms[prm_ix, 1],
+                          " nu: ", prms[prm_ix, 2])
+        )
+        lines(0:n_ahead, irf_qt[1,], col = "red")
+        lines(0:n_ahead, irf_qt[max(n_quantiles),], col = "red")
+        if(length(n_quantiles)==5){
+          lines(0:n_ahead, irf_qt[2,], col = "blue")
+          lines(0:n_ahead, irf_qt[4,], col = "blue")
+        }
+        abline(h=0, lty = "dashed")
+      }
+    }
+  }
+}
