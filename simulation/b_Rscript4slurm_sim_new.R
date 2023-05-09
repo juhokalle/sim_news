@@ -22,6 +22,7 @@ params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
 # OPTIMIZATION PARAMS
 params$RESTART_W_NOISE = 0
 params$FIX_INIT = FALSE
+params$IC <- TRUE
 params$penalty_prm = 100
 
 params$IT_OPTIM_GAUSS = 3
@@ -59,11 +60,12 @@ pap = pap_factory(params$PATH_RESULTS_HELPER)
 # New directory for saving all tibbles
 new_dir_path = pap(paste0("jobid_", params$MANUALLY_ASSIGNED_ID))
 
-if (!dir.exists(new_dir_path)){
-  dir.create(new_dir_path)
+if(params$IX_ARRAY_JOB==1){
+  if (!dir.exists(new_dir_path)){
+    dir.create(new_dir_path)
+  }
 }
 
-tibble_out <- tibble()
 for(i in 1:nrep_est){
   
   # GENERATE DATA

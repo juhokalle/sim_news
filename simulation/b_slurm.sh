@@ -3,16 +3,16 @@
 #SBATCH --job-name=svarma_simu
 #SBATCH -N 1
 #SBATCH -p short
-#SBATCH -t 03:00:00
-#SBATCH -n 1
+#SBATCH -t 01:30:00
+#SBATCH -n 20
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-2
+#SBATCH --array=1-21
 #SBATCH --constraint=amd
 
-MANUALLY_ASSIGNED_ID=20230427
+MANUALLY_ASSIGNED_ID=20230509
 
 module load R/4.2.1
 
-srun Rscript d_simu_mixed_mod.R $SLURM_ARRAY_TASK_ID $SLURM_JOB_ID $MANUALLY_ASSIGNED_ID $SLURM_ARRAY_TASK_MAX
+srun Rscript b_Rscript4slurm_sim_news.R $SLURM_ARRAY_TASK_ID $SLURM_JOB_ID $MANUALLY_ASSIGNED_ID $SLURM_ARRAY_TASK_MAX

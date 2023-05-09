@@ -11,23 +11,15 @@ nrep_est <- 1
 
 # SIMU MODEL ####
 DIM_OUT <- 3
-phimat <- matrix(c(.74, .13, .24,
-                   -.09,-.44, .3,
-                   -.16,-.06, .53), 
-                 ncol = DIM_OUT, nrow = DIM_OUT)
-Bmat <- matrix(c(2.32, .72, .98, 
-                 -.48, 2.32, 1.57, 
-                 -.41, -.22, .76),
-               ncol = DIM_OUT, nrow = DIM_OUT)
-sign_mat <- sign(Bmat)
-a1 <- phimat + Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)
-a2 <- -Bmat%*%diag(0.5, DIM_OUT)%*%solve(Bmat)%*%phimat
-ar_polm <- abind::abind(diag(DIM_OUT), -a1, -a2, along = 3) %>% polm()
+mod_mat <- get_struc_mat(model_type = "dynamic")
+mod_mat$eps_val <- 10^-12
+mod_str <- do.call(solve_re_mod_bp, mod_mat)
+sign_mat <- sign(mod_str$sigma_L)
 ma_polm <- abind::abind(diag(DIM_OUT),
-                        Bmat%*%diag(c(0, 0.5, 2))%*%solve(Bmat), 
+                        with(mod_str, sigma_L%*%diag(c(0, 0.5, 2))%*%solve(sigma_L)), 
                         along = 3) %>% polm
-dgp_mod <- armamod(sys = lmfd(ar_polm, ma_polm), # reduced-from varma 
-                   sigma_L = Bmat) # with m0, sigma_L makes impact mat align with Bmat
+dgp_mod <- armamod(sys = lmfd(mod_str$sys$a, ma_polm), # reduced-from varma 
+                   sigma_L = mod_str$sigma_L) # with m0, sigma_L makes impact mat align with Bmat
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -82,14 +74,6 @@ tibble_out <- tibble()
 for(i in 1:nrep_est){
   
   # GENERATE DATA
-  rg_fun <-
-    if(params$IX_ARRAY_JOB%%2){
-      list(fun =  mixed_marg_dists(DIM_OUT, 3),
-           lbl = "mixed")
-    } else {
-      list(fun = function(x) stats::rt(x, 3),
-           lbl = "tdist")
-    }
   
   DATASET = apply(X = do.call(what = simu_y, 
                               args = list(model = dgp_mod, 

@@ -5,31 +5,26 @@
 # PREAMBLE ####
 source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
-pkgs <- c("lubridate", "xts", "parallel", "svarmawhf", 
-          "mixtools", "fitdistrplus", "sgt", "tidyverse")
-void = lapply(pkgs, library, character.only = TRUE)
+pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
+void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
+nrep_est <- 20
+set.seed(20230905)
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
 params = list()
 
 # Parameters from Rmarkdown
-params$USE_PARALLEL = TRUE
-if (params$USE_PARALLEL){
-  params$N_CORES = as.integer(args[6])
-} else {
-  params$N_CORES = 1
-} 
+params$IX_ARRAY_JOB = as.integer(args[1]) # index of array-job. Number of array-jobs is determined from number of rows of dataframe containing all integer-values parameters
+params$SLURM_JOB_ID = as.integer(args[2])
+params$MANUALLY_ASSIGNED_ID = as.integer(args[3])
+params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
 
+# OPTIMIZATION PARAMS
 params$RESTART_W_NOISE = 0
 params$FIX_INIT = FALSE
-
-params$N_MODS_PER_CORE = as.integer(args[1]) # important param: specifies how many models are estimated by each array-job
-params$IX_ARRAY_JOB = as.integer(args[2]) # index of array-job. Number of array-jobs is determined from number of rows of dataframe containing all integer-values parameters
-params$SLURM_JOB_ID = as.integer(args[3])
-params$MANUALLY_ASSIGNED_ID = as.integer(args[4])
-
-params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/data_list_boot.rds"
+params$IC <- TRUE
+params$penalty_prm = 100
 
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
@@ -40,86 +35,110 @@ params$MAXIT_NM_GAUSS = 1000
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
-params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
+params$MAXIT_BFGS_LAPLACE = 500
+params$MAXIT_NM_LAPLACE = 1000
 
-params$IT_OPTIM_SGT = 4
+params$IT_OPTIM_SGT = 3
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
-params$MAXIT_NM_SGT = 2500 # default for NM is 500
+params$MAXIT_BFGS_SGT = 500
+params$MAXIT_NM_SGT = 1000
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
-cat("\n--------------------------------------------------\n")
-cat(paste0("This is array task ", params$IX_ARRAY_JOB, "\n"))
-cat(paste0("The job ID is ", params$SLURM_JOB_ID, "\n"))
-cat(paste0("The manually assigned ID is ", params$MANUALLY_ASSIGNED_ID, "\n\n"))
-cat(paste0("The number of cores of this job is ", params$N_CORES, 
-           "and there are ", params$N_MODS_PER_CORE,
-           " models estimated per core, for a total of ", params$N_CORES*params$N_MODS_PER_CORE, "\n\n"))
-cat(paste0("Rows ", 1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE,
-           " to ", params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE,
-           " from the tibble containing integer-valued parameters are chosen. \n\n"))
-cat("\n--------------------------------------------------\n")
-
-
-# Data and derived PARAMETERS ####
-DATASET = readRDS(params$FILE_NAME_INPUT)
-DIM_OUT = dim(DATASET$data_list[[1]])[2]
+# SIMULATION SPECS: MODEL PARAMS
+tbl0 <- readRDS("./local_data/...") %>% slice_sample(n=1)
+mdl0 <- with(tbl0, armamod_whf(params_deep_final[[1]], tmpl[[1]]))
+arg_list <- list(model = armamod(lmfd(mdl0$polm_ar, mdl0$polm_ma), sigma_L = mdl0$B),
+                 n.obs = 1000,
+                 rand.gen = function(x) stats::rt(x, 3),
+                 n.burnin = 500)
+DIM_OUT <- 2
 params$DIM_OUT = DIM_OUT
+DATASET = apply(X = do.call(what = simu_y, 
+                            args = arg_list)$y$y,
+                MARGIN = 2,
+                FUN = function(x) x-mean(x))
+rm(.Random.seed, envir=globalenv())
 
-# Tibble with integer-valued parameters
-tt =
-  # the chosen model:
-  tibble(p = 1, q = 2, kappa = 0, k = 1, n_st = 1, n_unst = 1) %>% 
-  # this way of including data makes it convenient for slicing
-  expand_grid(DATASET)
-
-if(params$IX_ARRAY_JOB==1){
-  saveRDS(tt, file = paste0(params$PATH_RESULTS_HELPER, "total_data_boot.rds"))
-}
-
-# Parallel setup ####
-tt_optim_parallel = tt %>% 
-  slice((1 + (params$IX_ARRAY_JOB-1) * params$N_CORES * params$N_MODS_PER_CORE):(params$IX_ARRAY_JOB * params$N_CORES * params$N_MODS_PER_CORE)) %>% 
-  # template
-  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-  # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
-  mutate(shock_distr = "tdist") %>% 
-  select(theta_init, tmpl, data_list, shock_distr)
-
-params_parallel = lapply(1:nrow(tt_optim_parallel),
-                         function(i) t(tt_optim_parallel)[,i])
-
-if(params$USE_PARALLEL){
-  
-  # Parallel computations
-  cl = try(makeCluster(params$N_CORES, type = "FORK"))
-  if(inherits(cl, 'try-error')){
-    mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
-  } else{
-    mods_parallel_list <- clusterApply(cl, params_parallel, fun = hlp_parallel)
-    stopCluster(cl)
-  }
-  
-  cat("Parallel finished \n")
-} else {
-  mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
-}
-
+# SIMULATION SPECS: TARGET PATH FOR SAVING RESULTS
 pap = pap_factory(params$PATH_RESULTS_HELPER)
 
-# New directory for saving all
+# New directory for saving all tibbles
 new_dir_path = pap(paste0("jobid_", params$MANUALLY_ASSIGNED_ID))
 
-if (!dir.exists(new_dir_path)){
-  dir.create(new_dir_path)
+if(params$IX_ARRAY_JOB==1){
+  if (!dir.exists(new_dir_path)){
+    dir.create(new_dir_path)
+  }
 }
 
-saveRDS(mods_parallel_list, 
-        paste0(new_dir_path, "/arrayjob_", 
-               if(params$IX_ARRAY_JOB<10) "00" else if(params$IX_ARRAY_JOB<100) "0",
-               params$IX_ARRAY_JOB,".rds"), 
-        version = 3)
+for(i in 1:nrep_est){
+  
+  # GENERATE DATA
+  bl_vec <- c(5, 10, 20, 50)
+  arg_boot <- list(y = DATASET,
+                   prms = tbl0$params_deep_final[[1]],
+                   tmpl = tbl0$tmpl[[1]],
+                   b.length = bl_vec[(i-1)%/%(nrep_est/length(bl_vec))+1],
+                   nboot = 1)
+  boot_sample = apply(X = do.call(what = mb_boot, 
+                                  args = arg_list),
+                      MARGIN = 2,
+                      FUN = function(x) x-mean(x))[[1]]
+  
+  # Tibble with integer-valued parameters
+  tt =
+    # orders (p,q)
+    expand_grid(p = 2, q = 1) %>% 
+    # number of unstable zeros
+    mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
+    unnest(n_unst) %>% 
+    mutate(n_st = DIM_OUT * q - n_unst) %>% 
+    mutate(kappa = n_unst %/% DIM_OUT,
+           k = n_unst %% DIM_OUT) %>% 
+    # assume correct specification w.r.t. MA polm
+    filter(n_unst==1) %>% 
+    # this way of including data makes it convenient for slicing
+    expand_grid(data_list = list(boot_sample)) %>% 
+    mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
+    mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x/sd(x))))
+  
+  # Parallel setup ####
+  tt_optim_parallel = tt %>% 
+    # template
+    mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
+    # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
+    mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
+    mutate(shock_distr = "tdist") %>% 
+    select(theta_init, tmpl, data_list, shock_distr)
+  
+  params_parallel = lapply(1:nrow(tt_optim_parallel),
+                           function(i) t(tt_optim_parallel)[,i])
+  
+  mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
+  
+  tibble_out =  
+    enframe(mods_parallel_list) %>% 
+    unnest_wider(value) %>% 
+    unnest_wider(results_list) %>%
+    unnest_wider(input_integerparams) %>% 
+    mutate(tt) %>% 
+    mutate(shock_distr = "tdist") %>% 
+    mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
+    expand_grid(block_s = arg_boot$b.length) %>% 
+    select(p, q, kappa, k, n_st, n_unst, value_final, block_s,
+           params_deep_final,
+           tmpl) %>% 
+    mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
+    mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
+    mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(unclass(.x)[,,1]%*%.y, c(1,2), opt_it = FALSE))) %>%
+    mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y))
+  
+  tibble_id <- paste0("/tibble_",
+                      paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
+                      paste(sample(letters, 5), collapse = ""),
+                      ".rds")
+  
+  saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
+}

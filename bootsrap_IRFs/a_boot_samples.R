@@ -3,7 +3,7 @@
 source("list_of_functions.R")
 pkgs <- c("svarmawhf", "tidyverse")
 void = lapply(pkgs, library, character.only = TRUE)
-nboot <- 5000
+nboot <- 2000
 
 tbl0 <- readRDS("./local_data/target_model.rds")
 ds <- readRDS("./local_data/jobid_20230303/total_data_sim.rds") %>% 
@@ -11,7 +11,7 @@ ds <- readRDS("./local_data/jobid_20230303/total_data_sim.rds") %>%
   pull(data_list) %>% 
   .[[1]]
   
-bl_vec <- c(5,10,20,50)
+bl_vec <- c(5, 10, 20, 50)
 
 arg_list <- map(bl_vec, ~
                   list(y = ds, 

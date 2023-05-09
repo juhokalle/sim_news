@@ -556,15 +556,20 @@ k_kappa2nunst <- function(q, dim_out, k, kappa){
 }
 
 # Tools related to structrual models
-get_struc_mat <- function(param_list, model_type = c("dynamic", "static", "r_smooth")){
+get_struc_mat <- function(model_type = c("dynamic", "static", "r_smooth"), param_list = NULL){
 
   if(model_type == "dynamic"){
     
+    if(is.null(param_list)) param_list <- prms <- list(beta = .99, kappa = .05, gamma = .5,
+                                                       delta_x = .1, alfa = .5, 
+                                                       tau_pi = 1.8, tau_x = .5, tau_r = .6, 
+                                                       rho_pi = .5, rho_x = .5, rho_r = .5)
     param_vec <- c("beta", "alfa", "kappa", "gamma", "delta_x", 
                    "tau_x", "tau_pi", "tau_r", 
                    "rho_x", "rho_pi", "rho_r")
     check_vec <- param_vec%in%names(param_list)
-    if(!all(check_vec)) stop("The following parameters are missing: ", paste(param_vec[check_vec], collapse = ", "))
+    if(!all(check_vec)) stop("The following parameters are missing: ", 
+                             paste(param_vec[!check_vec], collapse = ", "))
     
     Kmat <- with(param_list, matrix(c(1, -kappa, -tau_x*(1-tau_r),
                                       0, 1, -tau_pi*(1-tau_r),
@@ -582,11 +587,15 @@ get_struc_mat <- function(param_list, model_type = c("dynamic", "static", "r_smo
     
   } else if(model_type == "static"){
     
+    if(is.null(param_list)) param_list <- list(beta = 0.995, kappa = 0.005,
+                                                phi_pi = 1.5, phi_y = 0.1,
+                                                sigma_d = 1.6, sigma_s = 0.95, sigma_m = 0.23)
     param_vec <- c("beta", "kappa",
                    "phi_pi", "phi_y",
                    "sigma_d", "sigma_s", "sigma_m")
     check_vec <- param_vec%in%names(param_list)
-    if(!all(check_vec)) stop("The following parameters are missing: ", paste(param_vec[check_vec], collapse = ", "))
+    if(!all(check_vec)) stop("The following parameters are missing: ", 
+                             paste(param_vec[!check_vec], collapse = ", "))
     
     Kmat <- with(param_list, matrix(c(1, -kappa, -phi_y,
                                       0, 1, -phi_pi,
@@ -602,11 +611,18 @@ get_struc_mat <- function(param_list, model_type = c("dynamic", "static", "r_smo
     
     Dmat <- matrix(0, 3, 3)
   
-  } else if(model_type == "r_smooth"){ 
+  } else if(model_type == "r_smooth"){
     
-    param_vec <- c("tau", "kappa", "rho_R", "psi_x", "beta", "psi_pi")
+    if(is.null(param_list)) param_list <- list(beta = .99, kappa = .75, tau = 2.08^-1,
+                                               psi_pi = 2.19, psi_x = 0.3, rho_R = 0.84,
+                                               sigma_g = .21, sigma_z = 1.16, sigma_R = 0.24)
+    
+    param_vec <- c("tau", "kappa", "rho_R", "beta", 
+                   "psi_x", "psi_pi",
+                   "sigma_g", "sigma_z", "sigma_R")
     check_vec <- param_vec%in%names(param_list)
-    if(!all(check_vec)) stop("The following parameters are missing: ", paste(param_vec[check_vec], collapse = ", "))
+    if(!all(check_vec)) stop("The following parameters are missing: ", 
+                             paste(param_vec[!check_vec], collapse = ", "))
     
     Kmat <- with(param_list, matrix(c(1, -kappa, -(1-rho_R)*psi_x,
                                       0, 1, 0,
@@ -618,9 +634,9 @@ get_struc_mat <- function(param_list, model_type = c("dynamic", "static", "r_smo
                                       tau, beta, (1-rho_R)*psi_pi, 
                                       0, 0, 0), 3, 3))
     
-    Hmat <- with(param_list, matrix(c(1, 0, 0, 
-                                      0, -kappa, -(1-rho_R)*psi_x,
-                                      0, 0, 1), 3, 3))
+    Hmat <- with(param_list, matrix(c(sigma_g, 0, 0, 
+                                      0, -kappa*sigma_z, -(1-rho_R)*psi_x*sigma_z,
+                                      0, 0, sigma_R), 3, 3))
     Dmat <- matrix(0, 3, 3)
     
   } else{
@@ -667,7 +683,7 @@ solve_re_mod_bp <- function(Kmat, Amat, Bmat, Hmat, Dmat, eps_val){
   Gmat <- solve(diag(dim1)-Bhat%*%Cmat)%*%Hhat
   Pmat <- Gmat
   iter <- 1
-  while(iter==1 || crit1>eps1){
+  while(iter==1 || crit1>eps_val){
     F_power_j <- if(iter==1) Fmat else F_power_j%*%Fmat
     D_power_j <- if(iter==1) Dmat else D_power_j%*%Dmat
     Pmat_j <- F_power_j %*% Gmat %*% D_power_j
