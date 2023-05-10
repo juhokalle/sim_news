@@ -8,7 +8,7 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
 nrep_est <- 20
-set.seed(20230905)
+set.seed(20230510)
 
 # Arguments from Rscript call: Parameters from SLURM script ####
 args = commandArgs(trailingOnly=TRUE)
@@ -47,10 +47,10 @@ params$MAXIT_NM_SGT = 1000
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
 # SIMULATION SPECS: MODEL PARAMS
-tbl0 <- readRDS("./local_data/...") %>% slice_sample(n=1)
+tbl0 <- readRDS("./local_data/tibble_simu.rds") %>% slice_sample(n=1)
 mdl0 <- with(tbl0, armamod_whf(params_deep_final[[1]], tmpl[[1]]))
-arg_list <- list(model = armamod(lmfd(mdl0$polm_ar, mdl0$polm_ma), sigma_L = mdl0$B),
-                 n.obs = 1000,
+arg_list <- list(model = with(mdl0, armamod(lmfd(polm_ar, polm_ma), sigma_L = B)),
+                 n.obs = 250,
                  rand.gen = function(x) stats::rt(x, 3),
                  n.burnin = 500)
 DIM_OUT <- 2
