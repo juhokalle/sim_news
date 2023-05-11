@@ -37,20 +37,20 @@ params$MA_ORDER_MAX = 4
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
-params$MAXIT_BFGS_GAUSS = 500
+params$MAXIT_BFGS_GAUSS = 80
 params$MAXIT_NM_GAUSS = 1000
 
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
-params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
+params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
+params$MAXIT_NM_LAPLACE = 2000 # default for NM is 500
 
 params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
-params$MAXIT_NM_SGT = 2500 # default for NM is 500
+params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
+params$MAXIT_NM_SGT = 3000 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
@@ -87,7 +87,7 @@ tt =
          k = n_unst %% DIM_OUT) %>% 
   # Estimate SVAR for comparison 
   bind_rows(tibble(p = (params$AR_ORDER_MAX+1):12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
-  expand_grid(DATASET, sd = c("tdist", "gt", "skewed_ged", "sgt", "skewed_t"))
+  expand_grid(DATASET, sd = c("tdist", "sgt", "skewed_t"))
 
 pap = pap_factory(params$PATH_RESULTS_HELPER)
 

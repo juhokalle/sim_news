@@ -54,7 +54,9 @@ simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
               u = t(u[, (n.burnin+1):(n.burnin+n.obs), drop = FALSE])))
 }
 
-sim_news <- function(beta, rho, no_sim = FALSE, nobs = 250, nu = 3, rg_fun)
+sim_news <- function(beta, rho, 
+                     no_sim = FALSE, nobs = 250, nu = 3, 
+                     rg_fun = function(x) stats::rt(x, nu))
 {
   theta <- 1/(1-beta*rho)
   ar_pol <- array(c(diag(2),                   # lag 0
