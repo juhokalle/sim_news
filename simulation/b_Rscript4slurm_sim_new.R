@@ -71,10 +71,7 @@ for(i in 1:nrep_est){
   # GENERATE DATA
   sim_obj <- do.call(what = sim_news, 
                      args = sim_prm)
-  DATASET = apply(X = sim_obj$y$y,
-                  MARGIN = 2,
-                  FUN = function(x) x-mean(x))
-  
+
   # Tibble with integer-valued parameters
   tt =
     # orders (p,q)
@@ -90,9 +87,9 @@ for(i in 1:nrep_est){
     # VAR benchmark
     bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
     # this way of including data makes it convenient for slicing
-    expand_grid(sim_prm, data_list = list(DATASET)) %>% 
+    expand_grid(sim_prm, data_list = list(sim_obj$y$y)) %>% 
     mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
-    mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x/sd(x))))
+    mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x))/sd(x))))
   
   # Parallel setup ####
   tt_optim_parallel = tt %>% 
