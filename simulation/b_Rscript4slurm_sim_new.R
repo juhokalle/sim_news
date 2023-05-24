@@ -1,6 +1,12 @@
-# ----------------------------- #
-# Script to be called via SLURM #
-# ----------------------------- #
+# ------------------------------------------------------------- #
+# Script to be called via SLURM ------------------------------- #
+# ------------------------------------------------------------- #
+# This is the main simulation script -------------------------- #
+# 1) Simulate data from the underlying structural model ------- #
+# 2) Estimate model with the pre-specified model specifications #
+# 3) Calculate the IRF and other objects of interest ---------- #
+# 4) Save the resulting tibble into random named file name ---- #
+# ------------------------------------------------------------- #
 
 # PREAMBLE ####
 source("/proj/juhokois/sim_news/list_of_functions.R")
@@ -28,19 +34,19 @@ params$penalty_prm = 100
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
-params$MAXIT_BFGS_GAUSS = 80
-params$MAXIT_NM_GAUSS = 1000
+params$MAXIT_BFGS_GAUSS = 500
+params$MAXIT_NM_GAUSS = 3000
 
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
-params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 2000 # default for NM is 500
+params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
+params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
 
 params$IT_OPTIM_SGT = 4
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
+params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
@@ -67,7 +73,6 @@ if(params$IX_ARRAY_JOB==1){
 }
 
 for(i in 1:nrep_est){
-  
   # GENERATE DATA
   sim_obj <- do.call(what = sim_news, 
                      args = sim_prm)
@@ -75,7 +80,7 @@ for(i in 1:nrep_est){
   # Tibble with integer-valued parameters
   tt =
     # orders (p,q)
-    expand_grid(p = 1, q = 1:2) %>% 
+    expand_grid(p = 1, q = 2) %>% 
     # number of unstable zeros
     mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
     unnest(n_unst) %>% 
@@ -98,7 +103,7 @@ for(i in 1:nrep_est){
     # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
     mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
     mutate(shock_distr = "tdist") %>% 
-    select(theta_init, tmpl, data_list, shock_distr)
+    dplyr::select(theta_init, tmpl, data_list, shock_distr)
   
   params_parallel = lapply(1:nrow(tt_optim_parallel),
                            function(i) t(tt_optim_parallel)[,i])
@@ -113,15 +118,17 @@ for(i in 1:nrep_est){
     mutate(tt) %>% 
     mutate(shock_distr = "tdist") %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
-    select(p, q, kappa, k, n_st, n_unst, beta, rho, nu, value_final,
-           params_deep_final,
-           tmpl) %>% 
+    mutate(res = pmap(., pmap_get_residuals_once)) %>% 
+    mutate(B_mat = map2(params_deep_final, tmpl, 
+                        ~fill_tmpl_whf_rev(theta = .x, 
+                                           tmpl = .y)$B)) %>% 
+    mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
     mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
     mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>% 
-    mutate(rmat = map(.x = irf, ~ choose_perm_sign(cand_mat = unclass(.x)[,,1],
-                                                   target_mat = sim_obj$mod$sigma_L,
-                                                   type = "frob"))) %>%
-    mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(unclass(.x)[,,1]%*%.y, c(1,2), opt_it = FALSE))) %>%
+    mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>% 
+    mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
+                                                            zr_ix = c(1,2),
+                                                            opt_it = FALSE))) %>%
     mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y))
   
   tibble_id <- paste0("/tibble_",
