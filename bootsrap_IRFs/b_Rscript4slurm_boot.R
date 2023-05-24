@@ -1,6 +1,14 @@
-# ----------------------------- #
-# Script to be called via SLURM #
-# ----------------------------- #
+# -------------------------------------------------- #
+# Script to be called via SLURM -------------------- #
+# -------------------------------------------------- #
+# This script executes the bootstrap procedure ----- #
+# 1) Load the estimated model for which the -------- #
+# confidence intervals are produced ---------------- #
+# 2) Create a bootstrap sample, according to ------- #
+# moving block bootstrap (function: mb_boot) ------- #
+# 3) Estimate the model using the model ------------ #
+# specification corresponding to the estimated model #
+# -------------------------------------------------- #
 
 # PREAMBLE ####
 source("/proj/juhokois/sim_news/list_of_functions.R")
@@ -47,7 +55,7 @@ params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
 # SIMULATION SPECS: MODEL PARAMS
-tbl0 <- readRDS("./local_data/tibble_simu.rds") %>% slice_sample(n=1)
+# tbl0 <- readRDS("./local_data/tibble_simu.rds") %>% slice_sample(n=1)
 mdl0 <- with(tbl0, armamod_whf(params_deep_final[[1]], tmpl[[1]]))
 arg_list <- list(model = with(mdl0, armamod(lmfd(polm_ar, polm_ma), sigma_L = B)),
                  n.obs = 250,
@@ -82,15 +90,13 @@ for(i in 1:nrep_est){
                    tmpl = tbl0$tmpl[[1]],
                    b.length = bl_vec[(i-1)%/%(nrep_est/length(bl_vec))+1],
                    nboot = 1)
-  boot_sample = apply(X = do.call(what = mb_boot, 
-                                  args = arg_list),
-                      MARGIN = 2,
-                      FUN = function(x) x-mean(x))[[1]]
+  boot_sample = do.call(what = mb_boot, 
+                        args = arg_boot)
   
   # Tibble with integer-valued parameters
   tt =
     # orders (p,q)
-    expand_grid(p = 2, q = 1) %>% 
+    expand_grid(p = 1, q = 2) %>% 
     # number of unstable zeros
     mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
     unnest(n_unst) %>% 
@@ -102,7 +108,7 @@ for(i in 1:nrep_est){
     # this way of including data makes it convenient for slicing
     expand_grid(data_list = list(boot_sample)) %>% 
     mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
-    mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x/sd(x))))
+    mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x)/sd(x)))))
   
   # Parallel setup ####
   tt_optim_parallel = tt %>% 

@@ -1,13 +1,21 @@
-# ----------------------------- #
-# Script to be called via SLURM #
-# ----------------------------- #
+# ----------------------------------------------------- #
+# Script to be called via SLURM ----------------------- #
+# ----------------------------------------------------- #
+# This script carries out the simulation exercise ----- #
+# showing that NG-SVARMA partially identifies --------- #
+# a subset of shocks that are sufficiently non-Gaussian #
+# 1) Simulate data from 3-eq. NK model with 2 different #
+# distributional settings, purely NG and partially NG - #
+# 2) Estimate under both setups ----------------------- #
+# 3) Calculate IRFs and other objects of interest ----- #
+# 4) Save the resulting tibble ------------------------ #
+# ----------------------------------------------------- #
 
 # PREAMBLE ####
 source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
-nrep_est <- 1
 
 # SIMU MODEL ####
 DIM_OUT <- 3
@@ -70,72 +78,75 @@ if(params$IX_ARRAY_JOB==1){
   }
 }
 
-tibble_out <- tibble()
-for(i in 1:nrep_est){
+# GENERATE DATA
+rg_fun <- 
+  if(params$IX_ARRAY_JOB%%2){
+    list(fun =  mixed_marg_dists(DIM_OUT, 3),
+         lbl = "mixed")
+  } else {
+    list(fun = function(x) stats::rt(x, 3),
+         lbl = "tdist")
+  }
+
+DATASET = do.call(what = simu_y, 
+                  args = list(model = dgp_mod, 
+                              n.obs = 100000,
+                              rand.gen = rg_fun$fun,
+                              n.burnin = 500))$y
+
+# MODEL SPECIFICATION
+tt =
+  # orders (p,q)
+  expand_grid(p = 2, q = 1) %>% 
+  # number of unstable zeros
+  mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
+  unnest(n_unst) %>% 
+  mutate(n_st = DIM_OUT * q - n_unst) %>% 
+  mutate(kappa = n_unst %/% DIM_OUT,
+         k = n_unst %% DIM_OUT) %>% 
+  # Assume correct specification w.r.t. MA polm
+  filter(n_unst==1) %>% 
+  # This way of including data makes it convenient for slicing
+  expand_grid(data_list = list(DATASET)) %>% 
+  # Save sd's and s'dize data
+  mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
+  mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x))/sd(x))))
+
+# Parallel setup ####
+tt_optim_parallel = tt %>% 
+  # template
+  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
+  # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
+  mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
+  mutate(shock_distr = "tdist") %>% 
+  select(theta_init, tmpl, data_list, shock_distr)
+
+params_parallel = lapply(1:nrow(tt_optim_parallel),
+                         function(i) t(tt_optim_parallel)[,i])
+
+mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
+
+tibble_out =  
+  enframe(mods_parallel_list) %>% 
+  unnest_wider(value) %>% 
+  unnest_wider(results_list) %>%
+  unnest_wider(input_integerparams) %>% 
+  mutate(tt) %>% 
+  mutate(shock_distr = "tdist") %>% 
+  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
+  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 12))) %>% 
+  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>% 
+  mutate(rmat = map(.x = irf, ~ choose_perm_sign(target_mat = sign_mat, 
+                                                 cand_mat = unclass(.x)[,,1], 
+                                                 type = "frob"))) %>%
+  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
+  expand_grid(nobs = nrow(DATASET), rg = rg_fun$lbl) %>% 
+  select(p, q, kappa, k, n_st, n_unst, value_final, irf, nobs, rg)
   
-  # GENERATE DATA
-  
-  DATASET = apply(X = do.call(what = simu_y, 
-                              args = list(model = dgp_mod, 
-                                          n.obs = 100000,
-                                          rand.gen = rg_fun$fun,
-                                          n.burnin = 500))$y,
-                  MARGIN = 2,
-                  FUN = function(x) x-mean(x))
-  
-  # Tibble with integer-valued parameters
-  tt =
-    # orders (p,q)
-    expand_grid(p = 2, q = 1) %>% 
-    # number of unstable zeros
-    mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
-    unnest(n_unst) %>% 
-    mutate(n_st = DIM_OUT * q - n_unst) %>% 
-    mutate(kappa = n_unst %/% DIM_OUT,
-           k = n_unst %% DIM_OUT) %>% 
-    # assume correct specification w.r.t. MA polm
-    filter(n_unst==1) %>% 
-    # this way of including data makes it convenient for slicing
-    expand_grid(data_list = list(DATASET)) %>% 
-    mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
-    mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x/sd(x))))
-  
-  # Parallel setup ####
-  tt_optim_parallel = tt %>% 
-    # template
-    mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
-    # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-    mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
-    mutate(shock_distr = "tdist") %>% 
-    select(theta_init, tmpl, data_list, shock_distr)
-  
-  params_parallel = lapply(1:nrow(tt_optim_parallel),
-                           function(i) t(tt_optim_parallel)[,i])
-  
-  mods_parallel_list = lapply(params_parallel, FUN = hlp_parallel)
-  
-  tibble_out =  
-    enframe(mods_parallel_list) %>% 
-    unnest_wider(value) %>% 
-    unnest_wider(results_list) %>%
-    unnest_wider(input_integerparams) %>% 
-    mutate(tt) %>% 
-    mutate(shock_distr = "tdist") %>% 
-    mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
-    mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 12))) %>% 
-    mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>% 
-    mutate(rmat = map(.x = irf, ~ choose_perm_sign(target_mat = sign_mat, 
-                                                   cand_mat = unclass(.x)[,,1], 
-                                                   type = "frob"))) %>%
-    mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
-    expand_grid(nobs = nrow(DATASET), rg = rg_fun$lbl) %>% 
-    select(p, q, kappa, k, n_st, n_unst, value_final, irf, nobs, rg)
-    
-  tibble_id <- paste0("/tibble_",
-                      paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
-                      paste(sample(letters, 5), collapse = ""),
-                      ".rds")
-  
-  saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
-}
+tibble_id <- paste0("/tibble_",
+                    paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
+                    paste(sample(letters, 5), collapse = ""),
+                    ".rds")
+
+saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
 
