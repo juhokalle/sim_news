@@ -5,7 +5,7 @@
 # 1) Simulate data from the underlying structural model ------- #
 # 2) Estimate model with the pre-specified model specifications #
 # 3) Calculate the IRF and other objects of interest ---------- #
-# 4) Save the resulting tibble into random named file name ---- #
+# 4) Save the resulting tibble with random named file name ---- #
 # ------------------------------------------------------------- #
 
 # PREAMBLE ####
@@ -26,30 +26,40 @@ params$MANUALLY_ASSIGNED_ID = as.integer(args[3])
 params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
 
 # OPTIMIZATION PARAMS
-params$RESTART_W_NOISE = 0
+
+## general
+params$RESTART_W_NOISE = 2
 params$FIX_INIT = FALSE
 params$IC <- TRUE
-params$penalty_prm = 100
+params$penalty_prm = 1000
+params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
+## gaussian density
 params$IT_OPTIM_GAUSS = 3
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
-params$MAXIT_BFGS_GAUSS = 500
-params$MAXIT_NM_GAUSS = 3000
+params$USE_CS_GAUSS = FALSE
+params$MAXIT_BFGS_GAUSS = 100
+params$MAXIT_NM_GAUSS = 1000
+params$MAXIT_CS_GAUSS = 500
 
+## laplacian density
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
-params$MAXIT_BFGS_LAPLACE = 500 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
+params$USE_CS_LAPLACE = FALSE
+params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
+params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
+params$MAXIT_CS_LAPLACE = 1000
 
-params$IT_OPTIM_SGT = 4
+## sgt density
+params$IT_OPTIM_SGT = 3
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
-params$MAXIT_BFGS_SGT = 1000 # default for derivative based methods
-params$MAXIT_NM_SGT = 3000 # default for NM is 500
-
-params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
+params$USE_CS_SGT = FALSE
+params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
+params$MAXIT_NM_SGT = 1000 # default for NM is 500
+params$MAXIT_CS_SGT = 500
 
 # SIMULATION SPECS: MODEL PARAMS
 sim_prm <- expand_grid(beta = c(0.5, 0.9), 
@@ -101,7 +111,7 @@ for(i in 1:nrep_est){
     # template
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
     # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-    mutate(theta_init = map2(tmpl, data_list, ~get_init_armamod_whf_random(.y, .x))) %>% 
+    mutate(theta_init = map2(.x = tmpl, .y = data_list, ~get_init_armamod_whf_random(.y, .x))) %>%
     mutate(shock_distr = "tdist") %>% 
     dplyr::select(theta_init, tmpl, data_list, shock_distr)
   
