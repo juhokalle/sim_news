@@ -734,6 +734,24 @@ plot_irfs <- function(){
   }
 }
 
+perm_init <- function(init_val, n_perms, ll_fun){
+  
+  init_list <- list(init_val)
+  for(j in 1:n_perms){
+    shrink_prm <- 1
+    while(shrink_prm > 1e-9){
+      aux_init <- rnorm(n = length(init_val),
+                        mean = 0, 
+                        sd = shrink_prm*init_val^2/(init_val^2+1))
+      shrink_prm <- ifelse(test = abs(ll_fun(init_val + aux_init))>5*abs(ll_fun(init_val)), 
+                           yes = shrink_prm/1.125,
+                           no = 0) %>% as.double()
+    }
+    init_list[[j+1]] <- init_val + aux_init
+  }
+  init_list
+}
+
 # CHRIS SIMS' OPTIMIZATION ALGORITHMS
 
 bfgsi <- function(H0, dg, dx) {

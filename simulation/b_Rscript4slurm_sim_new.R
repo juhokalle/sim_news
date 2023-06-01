@@ -28,14 +28,14 @@ params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
 # OPTIMIZATION PARAMS
 
 ## general
-params$RESTART_W_NOISE = 2
+params$RESTART_W_NOISE = 1
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 1000
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
 ## gaussian density
-params$IT_OPTIM_GAUSS = 3
+params$IT_OPTIM_GAUSS = 2
 params$USE_BFGS_GAUSS = TRUE
 params$USE_NM_GAUSS = TRUE
 params$USE_CS_GAUSS = FALSE
@@ -44,7 +44,7 @@ params$MAXIT_NM_GAUSS = 1000
 params$MAXIT_CS_GAUSS = 500
 
 ## laplacian density
-params$IT_OPTIM_LAPLACE = 3
+params$IT_OPTIM_LAPLACE = 2
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$USE_CS_LAPLACE = FALSE
@@ -53,7 +53,7 @@ params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
 params$MAXIT_CS_LAPLACE = 1000
 
 ## sgt density
-params$IT_OPTIM_SGT = 3
+params$IT_OPTIM_SGT = 2
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$USE_CS_SGT = FALSE
@@ -111,7 +111,11 @@ for(i in 1:nrep_est){
     # template
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
     # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-    mutate(theta_init = map2(.x = tmpl, .y = data_list, ~get_init_armamod_whf_random(.y, .x))) %>%
+    mutate(ll_fun = map2(.x = data_list, .y = tmpl, ~ ll_whf_factory(t(unclass(.x)), .y, shock_distr="gaussian"))) %>% 
+    mutate(theta_init = map2(.x = data_list, .y = tmpl, ~get_init_armamod_whf_random(.x, .y))) %>%
+    mutate(theta_init = map2(.x = theta_init, .y = ll_fun, ~ perm_init(.x, 2, .y))) %>% 
+    unnest_longer(theta_init) %>% 
+    mutate(init_val = map2_dbl(.x = theta_init, .y = ll_fun, ~ .y(.x))) %>% 
     mutate(shock_distr = "tdist") %>% 
     dplyr::select(theta_init, tmpl, data_list, shock_distr)
   
@@ -126,6 +130,9 @@ for(i in 1:nrep_est){
     unnest_wider(results_list) %>%
     unnest_wider(input_integerparams) %>% 
     mutate(tt) %>% 
+    group_by(q) %>% 
+    slice_min(value_final) %>% 
+    ungroup() %>% 
     mutate(shock_distr = "tdist") %>% 
     mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
     mutate(res = pmap(., pmap_get_residuals_once)) %>% 
