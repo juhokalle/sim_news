@@ -653,7 +653,7 @@ get_struc_mat <- function(model_type = c("dynamic", "static", "r_smooth"), param
 #                + H * w[t]
 # w[t] = D * w[t-1] + v[t]
 
-solve_re_mod_bp <- function(Kmat, Amat, Bmat, Hmat, Dmat, eps_val){
+solve_re_mod_bp <- function(Kmat, Amat, Bmat, Hmat, Dmat, eps_val = 1e-9){
   
   # Transform System to Canonical Form:
   # x[t] = Ahat * x[t-1] + Bhat * E(x[t+1]|I[t]) 
