@@ -4,14 +4,14 @@
 #SBATCH -N 1
 #SBATCH -p short
 #SBATCH -t 02:00:00
-#SBATCH --ntasks = 10
+#SBATCH --ntasks=10
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-50
+#SBATCH --array=1-12
 
-MANUALLY_ASSIGNED_ID=20230601
+MANUALLY_ASSIGNED_ID=20230609
 SRUN_CPUS_PER_TASK=16
 
 module load R/4.2.1

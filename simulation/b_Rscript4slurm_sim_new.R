@@ -23,7 +23,7 @@ params$IX_ARRAY_JOB = as.integer(args[1]) # index of array-job. Number of array-
 params$SLURM_JOB_ID = as.integer(args[2])
 params$MANUALLY_ASSIGNED_ID = as.integer(args[3])
 params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
-params$SRUN_CPUS_PER_TASK = as.integer(args[6])
+params$SRUN_CPUS_PER_TASK = as.integer(args[5])
 
 # OPTIMIZATION PARAMS
 
@@ -36,30 +36,30 @@ params$penalty_prm = 1000
 params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
 ## gaussian density
-params$IT_OPTIM_GAUSS = 2
-params$USE_BFGS_GAUSS = TRUE
-params$USE_NM_GAUSS = TRUE
+params$IT_OPTIM_GAUSS = 1
+params$USE_BFGS_GAUSS = FALSE
+params$USE_NM_GAUSS = FALSE
 params$USE_CS_GAUSS = FALSE
-params$MAXIT_BFGS_GAUSS = 100
-params$MAXIT_NM_GAUSS = 500
+params$MAXIT_BFGS_GAUSS = 200
+params$MAXIT_NM_GAUSS = 1000
 params$MAXIT_CS_GAUSS = 500
 
 ## laplacian density
-params$IT_OPTIM_LAPLACE = 2
+params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$USE_CS_LAPLACE = FALSE
-params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 500 # default for NM is 500
-params$MAXIT_CS_LAPLACE = 1000
+params$MAXIT_BFGS_LAPLACE = 200 # default for derivative based methods
+params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
+params$MAXIT_CS_LAPLACE = 500
 
 ## sgt density
-params$IT_OPTIM_SGT = 2
+params$IT_OPTIM_SGT = 3
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$USE_CS_SGT = FALSE
-params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
-params$MAXIT_NM_SGT = 500 # default for NM is 500
+params$MAXIT_BFGS_SGT = 200 # default for derivative based methods
+params$MAXIT_NM_SGT = 1000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
 
 # SIMULATION SPECS: MODEL PARAMS
@@ -116,7 +116,8 @@ tt =
   mutate(theta_init = map2(.x = theta_init, .y = ll_fun, ~ perm_init(.x, params$PERM_INIT, .y))) %>% 
   unnest_longer(theta_init) %>% 
   mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
-  mutate(shock_distr = "tdist")
+  mutate(shock_distr = "tdist") %>% 
+  filter(!(q==0 & init_ix>1))
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
@@ -125,7 +126,7 @@ tt_optim_parallel = tt %>%
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])
 cl <- parallel::makeCluster(params$SRUN_CPUS_PER_TASK, "FORK", methods = FALSE)
-mods_parallel_list = parallel::clusterApply(cl, params_parallel, hlp_parallel)
+system.time(mods_parallel_list <- parallel::clusterApply(cl, params_parallel, hlp_parallel))
 parallel::stopCluster(cl)
 
 tibble_out =  
@@ -137,14 +138,14 @@ tibble_out =
   group_by(q, sim_ix) %>%
   slice_min(value_final) %>%
   ungroup() %>%
-  # mutate(res = pmap(., pmap_get_residuals_once)) %>% 
-  # mutate(B_mat = map2(params_deep_final, tmpl, 
-  #                     ~fill_tmpl_whf_rev(theta = .x, 
-  #                                        tmpl = .y)$B)) %>% 
-  #mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
+  # mutate(res = pmap(., pmap_get_residuals_once)) %>%
+  # mutate(B_mat = map2(params_deep_final, tmpl,
+  #                     ~fill_tmpl_whf_rev(theta = .x,
+  #                                        tmpl = .y)$B)) %>%
+  # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
-  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>% 
-  mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>% 
+  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) 
+  mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
                                                           zr_ix = c(1,2),
                                                           opt_it = FALSE))) %>%
