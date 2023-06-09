@@ -32,7 +32,7 @@ params$RESTART_W_NOISE = 1
 params$PERM_INIT = 5
 params$FIX_INIT = FALSE
 params$IC <- TRUE
-params$penalty_prm = 1000
+params$penalty_prm = 100
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
@@ -71,12 +71,12 @@ DIM_OUT <- 2
 params$DIM_OUT = DIM_OUT
 
 # GENERATE DATA
-data_list <- do.call(what = sim_news, args = sim_prm)$y$y
+sim_obj <- do.call(what = sim_news, args = sim_prm)
 
 # Tibble with integer-valued parameters
 tt =
   # orders (p,q)
-  expand_grid(p = 1, q = 2) %>% 
+  expand_grid(p = 1, q = 1:2) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
   unnest(n_unst) %>% 
@@ -90,7 +90,7 @@ tt =
   # this way of including data makes it convenient for slicing
   # expand_grid(sim_prm, data_list = sim_obj) %>%
   expand_grid(sim_prm) %>%
-  mutate(data_list = list(data_list)) %>% 
+  mutate(data_list = list(sim_obj$y$y)) %>% 
   mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
   mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x))/sd(x)))) %>% 
   # template
@@ -128,10 +128,13 @@ tibble_out =
   # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
   mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>%  
-  mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
-  mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
-                                                          zr_ix = c(1,2),
-                                                          opt_it = FALSE))) %>%
+  mutate(rmat = map(.x=irf, ~choose_perm_sign(target_mat = sim_obj$mod$sigma_L,
+                                              cand_mat = unclass(.x)[,,1],
+                                              type = "frob"))) %>% 
+  # mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
+  # mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
+  #                                                         zr_ix = c(1,2),
+  #                                                         opt_it = FALSE))) %>%
   mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y))
 
 tibble_id <- paste0("/tibble_",

@@ -15,7 +15,7 @@ ROOT_PATH="/proj/juhokois/sim_news/local_data/jobid_"
 MANUALLY_ASSIGNED_ID=20230609
 NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 
-mkdir -p NEW_DIR
+mkdir -p $NEW_DIR
 module load R/4.2.1
 
 srun Rscript b_Rscript4slurm_sim_new.R $SLURM_ARRAY_TASK_ID $SLURM_JOB_ID $MANUALLY_ASSIGNED_ID $SLURM_ARRAY_TASK_MAX $NEW_DIR
