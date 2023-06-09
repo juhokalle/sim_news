@@ -176,8 +176,8 @@ id_news_shox <- function(irf_arr, policy_var)
   rot_mat <- rot_mat%*%diag(c(sign(diag0), 1))
   
   # 2) news shock
-  peak_ix <- which.max(abs(unclass(irf_tmp)[policy_var, dim_in, ]))
-  if(unclass(irf_tmp)[policy_var, dim_in, peak_ix] < 0){
+  peak_ix <- which.max(abs(unclass(irf_tmp)[policy_var, dim_in, -1]))
+  if(unclass(irf_tmp)[policy_var, dim_in, peak_ix+1] < 0){
     rot_mat <- rot_mat%*%diag(c(rep(1, dim_in-1), -1))
   }
   rot_mat

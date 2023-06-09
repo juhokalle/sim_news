@@ -23,7 +23,7 @@ params$IX_ARRAY_JOB = as.integer(args[1]) # index of array-job. Number of array-
 params$SLURM_JOB_ID = as.integer(args[2])
 params$MANUALLY_ASSIGNED_ID = as.integer(args[3])
 params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
-params$NEW_DIR = as.integer(args[5])
+params$NEW_DIR = args[5]
 
 # OPTIMIZATION PARAMS
 
@@ -118,9 +118,9 @@ tibble_out =
   unnest_wider(results_list) %>%
   unnest_wider(input_integerparams) %>% 
   mutate(tt) %>%
-  # group_by(q) %>%
-  # slice_min(value_final) %>%
-  # ungroup() %>%
+  group_by(q) %>%
+  slice_min(value_final) %>%
+  ungroup() %>%
   # mutate(res = pmap(., pmap_get_residuals_once)) %>%
   # mutate(B_mat = map2(params_deep_final, tmpl,
   #                     ~fill_tmpl_whf_rev(theta = .x,
