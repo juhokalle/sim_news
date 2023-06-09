@@ -23,7 +23,7 @@ params$IX_ARRAY_JOB = as.integer(args[1]) # index of array-job. Number of array-
 params$SLURM_JOB_ID = as.integer(args[2])
 params$MANUALLY_ASSIGNED_ID = as.integer(args[3])
 params$SLURM_ARRAY_TASK_MAX = as.integer(args[4])
-params$SRUN_CPUS_PER_TASK = as.integer(args[5])
+params$NEW_DIR = as.integer(args[5])
 
 # OPTIMIZATION PARAMS
 
@@ -33,7 +33,6 @@ params$PERM_INIT = 5
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 1000
-params$PATH_RESULTS_HELPER = "/proj/juhokois/sim_news/local_data/"
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
@@ -71,20 +70,8 @@ sim_prm <- sim_prm[(params$IX_ARRAY_JOB-1)%/%(params$SLURM_ARRAY_TASK_MAX/nrow(s
 DIM_OUT <- 2
 params$DIM_OUT = DIM_OUT
 
-# SIMULATION SPECS: TARGET PATH FOR SAVING RESULTS
-pap = pap_factory(params$PATH_RESULTS_HELPER)
-
-# New directory for saving all tibbles
-new_dir_path = pap(paste0("jobid_", params$MANUALLY_ASSIGNED_ID))
-
-if(params$IX_ARRAY_JOB==1){
-  if (!dir.exists(new_dir_path)){
-    dir.create(new_dir_path)
-  }
-}
-
 # GENERATE DATA
-sim_obj <- map(1:params$SRUN_CPUS_PER_TASK, ~ list(sim_ix = .x, data_list = do.call(what = sim_news, args = sim_prm)$y$y))
+data_list <- do.call(what = sim_news, args = sim_prm)$y$y
 
 # Tibble with integer-valued parameters
 tt =
@@ -103,9 +90,7 @@ tt =
   # this way of including data makes it convenient for slicing
   # expand_grid(sim_prm, data_list = sim_obj) %>%
   expand_grid(sim_prm) %>%
-  mutate(data_list = list(sim_obj)) %>% 
-  unnest_longer(data_list) %>% 
-  unnest_wider(data_list) %>% 
+  mutate(data_list = list(data_list)) %>% 
   mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
   mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x))/sd(x)))) %>% 
   # template
@@ -125,9 +110,7 @@ tt_optim_parallel = tt %>%
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
                          function(i) t(tt_optim_parallel)[,i])
-cl <- parallel::makeCluster(params$SRUN_CPUS_PER_TASK, "FORK", methods = FALSE)
-system.time(mods_parallel_list <- parallel::clusterApply(cl, params_parallel, hlp_parallel))
-parallel::stopCluster(cl)
+mods_parallel_list <- lapply(params_parallel, hlp_parallel)
 
 tibble_out =  
   enframe(mods_parallel_list) %>% 
@@ -135,16 +118,16 @@ tibble_out =
   unnest_wider(results_list) %>%
   unnest_wider(input_integerparams) %>% 
   mutate(tt) %>%
-  group_by(q, sim_ix) %>%
-  slice_min(value_final) %>%
-  ungroup() %>%
+  # group_by(q) %>%
+  # slice_min(value_final) %>%
+  # ungroup() %>%
   # mutate(res = pmap(., pmap_get_residuals_once)) %>%
   # mutate(B_mat = map2(params_deep_final, tmpl,
   #                     ~fill_tmpl_whf_rev(theta = .x,
   #                                        tmpl = .y)$B)) %>%
   # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
-  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) 
+  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>%  
   mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
                                                           zr_ix = c(1,2),
@@ -156,4 +139,4 @@ tibble_id <- paste0("/tibble_",
                     paste(sample(letters, 5), collapse = ""),
                     ".rds")
 
-saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
+saveRDS(tibble_out, file = paste0(params$NEW_DIR, tibble_id))
