@@ -332,7 +332,7 @@ choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs"))
       rt_mat <- diag(sign_ix[j, ]) %*% diag(nvar)[, unlist(perm_ix[jj, ])]
       x1 <- cand_mat %*% rt_mat
       if(type=="frob"){
-        cr1 <- norm(target_mat - x1, "F")
+        cr1 <- sqrt(sum((target_mat - x1)^2))
       } else if(type=="dg_abs"){
         cr1 <- if(all(diag(x1)>0)) -abs(prod(diag(x1))) else 1e25
       }

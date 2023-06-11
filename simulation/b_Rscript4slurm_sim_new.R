@@ -32,7 +32,7 @@ params$RESTART_W_NOISE = 1
 params$PERM_INIT = 5
 params$FIX_INIT = FALSE
 params$IC <- TRUE
-params$penalty_prm = 100
+params$penalty_prm = 50
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
@@ -128,14 +128,15 @@ tibble_out =
   # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
   mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>%  
-  mutate(rmat = map(.x=irf, ~choose_perm_sign(target_mat = sim_obj$mod$sigma_L,
-                                              cand_mat = unclass(.x)[,,1],
-                                              type = "frob"))) %>% 
+  mutate(rmat = map(.x = irf, ~ choose_perm_sign(target_mat = sim_obj$mod$sigma_L,
+                                                 cand_mat = unclass(.x)[,,1],
+                                                 type = "frob"))) %>% 
   # mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   # mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
   #                                                         zr_ix = c(1,2),
   #                                                         opt_it = FALSE))) %>%
-  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y))
+  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
+  dplyr::select(p, q, kappa, k, beta, nu, value_final, irf)
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 

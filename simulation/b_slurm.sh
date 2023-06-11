@@ -4,12 +4,12 @@
 #SBATCH -N 1
 #SBATCH -p short
 #SBATCH -t 00:10:00
-#SBATCH --ntasks=80
+#SBATCH --ntasks=120
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-24
+#SBATCH --array=1-96
 
 ROOT_PATH="/proj/juhokois/sim_news/local_data/jobid_"
 MANUALLY_ASSIGNED_ID=20230609
