@@ -318,7 +318,7 @@ get_rest_irf <- function(tbl_slice, ...)
   return(list(irf = irf_out, pval = pval, rmat = opt_obj$rmat))
 }
 
-choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs"))
+choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs", "min_rmse"))
 {
   nvar <- ncol(cand_mat)
   sign_ix <- nvar %>% replicate(list(c(-1,1))) %>% expand.grid
@@ -330,9 +330,9 @@ choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs"))
   for(j in 1:nrow(sign_ix)){
     for(jj in 1:nrow(perm_ix)){
       rt_mat <- diag(sign_ix[j, ]) %*% diag(nvar)[, unlist(perm_ix[jj, ])]
-      x1 <- cand_mat %*% rt_mat
-      if(type=="frob"){
-        cr1 <- sqrt(sum((target_mat - x1)^2))
+      x1 <- if(type=="min_rmse") cand_mat %r% rt_mat else cand_mat %*% rt_mat
+      if(type%in%c("frob", "min_rmse")){
+        cr1 <- sqrt(sum(c(target_mat - x1)^2))
       } else if(type=="dg_abs"){
         cr1 <- if(all(diag(x1)>0)) -abs(prod(diag(x1))) else 1e25
       }

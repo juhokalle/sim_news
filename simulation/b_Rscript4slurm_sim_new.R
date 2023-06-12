@@ -40,7 +40,7 @@ params$USE_BFGS_GAUSS = FALSE
 params$USE_NM_GAUSS = FALSE
 params$USE_CS_GAUSS = FALSE
 params$MAXIT_BFGS_GAUSS = 200
-params$MAXIT_NM_GAUSS = 1000
+params$MAXIT_NM_GAUSS = 3000
 params$MAXIT_CS_GAUSS = 500
 
 ## laplacian density
@@ -49,7 +49,7 @@ params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$USE_CS_LAPLACE = FALSE
 params$MAXIT_BFGS_LAPLACE = 200 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
+params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
 params$MAXIT_CS_LAPLACE = 500
 
 ## sgt density
@@ -58,7 +58,7 @@ params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$USE_CS_SGT = FALSE
 params$MAXIT_BFGS_SGT = 200 # default for derivative based methods
-params$MAXIT_NM_SGT = 1000 # default for NM is 500
+params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
 
 # SIMULATION SPECS: MODEL PARAMS
@@ -128,9 +128,11 @@ tibble_out =
   # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
   mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>%  
-  mutate(rmat = map(.x = irf, ~ choose_perm_sign(target_mat = sim_obj$mod$sigma_L,
-                                                 cand_mat = unclass(.x)[,,1],
-                                                 type = "frob"))) %>% 
+  mutate(true_irf = map(.x = beta, ~ with(sim_news(beta = .x, rho = 0.5, no_sim = TRUE),
+                                          pseries(sys, 8)%r%sigma_L))) %>% 
+  mutate(rmat = map2(.x = true_irf, .y = irf, ~ choose_perm_sign(target_mat = .x,
+                                                                 cand_mat = .y,
+                                                                 type = "min_rmse"))) %>% 
   # mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   # mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
   #                                                         zr_ix = c(1,2),
