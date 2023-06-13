@@ -29,10 +29,10 @@ params$NEW_DIR = args[5]
 
 ## general
 params$RESTART_W_NOISE = 1
-params$PERM_INIT = 5
+params$PERM_INIT = 4
 params$FIX_INIT = FALSE
 params$IC <- TRUE
-params$penalty_prm = 50
+params$penalty_prm = 100
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
@@ -96,9 +96,8 @@ tt =
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  mutate(ll_fun = map2(.x = data_list, .y = tmpl, ~ ll_whf_factory(t(unclass(.x)), .y, shock_distr = "gaussian"))) %>% 
   mutate(theta_init = map2(.x = data_list, .y = tmpl, ~get_init_armamod_whf_random(.x, .y))) %>%
-  mutate(theta_init = map2(.x = theta_init, .y = ll_fun, ~ perm_init(.x, params$PERM_INIT, .y))) %>% 
+  mutate(theta_init = map2(.x = theta_init, .y = tmpl, ~ perm_init(.x, params$PERM_INIT, .y))) %>% 
   unnest_longer(theta_init) %>% 
   mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   mutate(shock_distr = "tdist") %>% 

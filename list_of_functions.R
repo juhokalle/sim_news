@@ -332,7 +332,7 @@ choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs", "m
       rt_mat <- diag(sign_ix[j, ]) %*% diag(nvar)[, unlist(perm_ix[jj, ])]
       x1 <- if(type=="min_rmse") cand_mat %r% rt_mat else cand_mat %*% rt_mat
       if(type%in%c("frob", "min_rmse")){
-        cr1 <- sqrt(sum(c(target_mat - x1)^2))
+        cr1 <- sqrt(mean(c(target_mat - x1)^2))
       } else if(type=="dg_abs"){
         cr1 <- if(all(diag(x1)>0)) -abs(prod(diag(x1))) else 1e25
       }
@@ -732,24 +732,6 @@ plot_irfs <- function(){
       }
     }
   }
-}
-
-perm_init <- function(init_val, n_perms, ll_fun){
-  
-  init_list <- list(init_val)
-  for(j in 1:n_perms){
-    shrink_prm <- 1
-    while(shrink_prm > 1e-9){
-      aux_init <- rnorm(n = length(init_val),
-                        mean = 0, 
-                        sd = shrink_prm*init_val^2/(init_val^2+1))
-      shrink_prm <- ifelse(test = abs(ll_fun(init_val + aux_init))>5*abs(ll_fun(init_val)), 
-                           yes = shrink_prm/1.125,
-                           no = 0) %>% as.double()
-    }
-    init_list[[j+1]] <- init_val + aux_init
-  }
-  init_list
 }
 
 # CHRIS SIMS' OPTIMIZATION ALGORITHMS

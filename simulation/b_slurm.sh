@@ -9,10 +9,10 @@
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-96
+#SBATCH --array=1-72
 
 ROOT_PATH="/proj/juhokois/sim_news/local_data/jobid_"
-MANUALLY_ASSIGNED_ID=20230609
+MANUALLY_ASSIGNED_ID=20230613
 NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 
 mkdir -p $NEW_DIR
