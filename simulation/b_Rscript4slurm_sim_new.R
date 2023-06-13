@@ -76,7 +76,7 @@ sim_obj <- do.call(what = sim_news, args = sim_prm)
 # Tibble with integer-valued parameters
 tt =
   # orders (p,q)
-  expand_grid(p = 1, q = 1:2) %>% 
+  expand_grid(p = 1, q = 2) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
   unnest(n_unst) %>% 
@@ -137,7 +137,7 @@ tibble_out =
   #                                                         zr_ix = c(1,2),
   #                                                         opt_it = FALSE))) %>%
   mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
-  dplyr::select(p, q, kappa, k, beta, nu, value_final, irf)
+  dplyr::select(p, q, kappa, k, beta, nu, value_final, irf, params_deep_final, tmpl)
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 

@@ -1,19 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=mp_svarma0
+#SBATCH -M ukko
+#SBATCH --job-name=svarma_boot
 #SBATCH -N 1
 #SBATCH -p short
-#SBATCH -t 00:30:00
-#SBATCH -c 16
+#SBATCH -t 00:10:00
+#SBATCH --ntasks=120
+#SBATCH --cpus-per-task=1
 #SBATCH --mem=1000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-63
+#SBATCH --array=1-72
 
-N_MODS_PER_CORE=4
-MANUALLY_ASSIGNED_ID=20230307
-SRUN_CPUS_PER_TASK=16
+ROOT_PATH="/proj/juhokois/sim_news/local_data/jobid_"
+MANUALLY_ASSIGNED_ID=20230613
+NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 
-module use /appl/modulefiles/all/ #loads all mds
+mkdir -p $NEW_DIR
 module load R/4.2.1
 
-srun Rscript b_Rscript4slurm_boot.R $N_MODS_PER_CORE $SLURM_ARRAY_TASK_ID $SLURM_JOB_ID $MANUALLY_ASSIGNED_ID $SLURM_JOB_NAME $SRUN_CPUS_PER_TASK
+srun Rscript b_Rscript4slurm_boot.R $SLURM_ARRAY_TASK_ID $SLURM_JOB_ID $MANUALLY_ASSIGNED_ID $SLURM_ARRAY_TASK_MAX $NEW_DIR
