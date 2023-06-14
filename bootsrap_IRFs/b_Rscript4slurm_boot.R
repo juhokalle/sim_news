@@ -32,7 +32,7 @@ params$NEW_DIR = args[5]
 
 ## general
 params$RESTART_W_NOISE = 1
-params$PERM_INIT = 4
+params$PERM_INIT = 8
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 100
@@ -67,7 +67,7 @@ params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
 
 # SIMULATION SPECS: MODEL PARAMS
-tbl0 <- readRDS("./local_data/tt_simu.rds") %>%
+tbl0 <- readRDS("/proj/juhokois/sim_news/local_data/tt_simu.rds") %>%
   filter(q==2, beta == 0.5, nu == 3) %>% 
   slice_sample(n=1)
 mdl0 <- with(tbl0, armamod_whf(params_deep_final[[1]], tmpl[[1]])) 
@@ -139,20 +139,21 @@ tibble_out =
   # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
   mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>%  
-  mutate(rmat = map(.x = irf, ~ choose_perm_sign(target_mat = tbl0$irf[[1]],
-                                                 cand_mat = .x,
-                                                 type = "min_rmse"))) %>% 
+  mutate(true_irf = tbl0$irf[[1]]) %>% 
+  mutate(rmat = map2(.x = true_irf, .y = irf, ~ choose_perm_sign(target_mat = .x,
+                                                                 cand_mat = .y,
+                                                                 type = "min_rmse"))) %>% 
   # mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   # mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
   #                                                         zr_ix = c(1,2),
   #                                                         opt_it = FALSE))) %>%
   mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
   mutate(block_length = bl_vec[bl_ix]) %>% 
-  dplyr::select(irf, block_length)
+  dplyr::select(irf, true_irf, block_length)
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
                     paste(sample(letters, 5), collapse = ""),
                     ".rds")
 
-saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
+saveRDS(tibble_out, file = paste0(params$NEW_DIR, tibble_id))
