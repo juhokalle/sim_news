@@ -19,12 +19,12 @@ void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRU
 
 # SIMU MODEL ####
 DIM_OUT <- 3
-n_obs <- 2.5*1e4
+n_obs <- 1e5
 mod_mat <- get_struc_mat(model_type = "dynamic")
 mod_mat$eps_val <- 10^-12
 mod_str <- do.call(solve_re_mod_bp, mod_mat)
 ma_polm <- abind::abind(diag(DIM_OUT),
-                        with(mod_str, sigma_L%*%diag(c(0, 0.5, 2))%*%solve(sigma_L)), 
+                        with(mod_str, sigma_L%*%diag(c(0.5, 0.5, 2))%*%solve(sigma_L)), 
                         along = 3) %>% polm
 dgp_mod <- armamod(sys = lmfd(mod_str$sys$a, ma_polm), # reduced-from varma 
                    sigma_L = mod_str$sigma_L) # with m0, sigma_L makes impact mat align with Bmat
