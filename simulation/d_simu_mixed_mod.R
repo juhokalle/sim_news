@@ -16,6 +16,7 @@ source("/proj/juhokois/sim_news/list_of_functions.R")
 .libPaths(c("/proj/juhokois/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
+set.seed(20230619)
 
 # SIMU MODEL ####
 DIM_OUT <- 3
@@ -60,21 +61,21 @@ params$MAXIT_NM_GAUSS = 3000
 params$MAXIT_CS_GAUSS = 500
 
 ## laplacian density
-params$IT_OPTIM_LAPLACE = 2
+params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
 params$USE_NM_LAPLACE = TRUE
 params$USE_CS_LAPLACE = FALSE
-params$MAXIT_BFGS_LAPLACE = 100 # default for derivative based methods
-params$MAXIT_NM_LAPLACE = 1000 # default for NM is 500
+params$MAXIT_BFGS_LAPLACE = 200 # default for derivative based methods
+params$MAXIT_NM_LAPLACE = 2000 # default for NM is 500
 params$MAXIT_CS_LAPLACE = 500
 
 ## sgt density
-params$IT_OPTIM_SGT = 2
+params$IT_OPTIM_SGT = 3
 params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = TRUE
 params$USE_CS_SGT = FALSE
-params$MAXIT_BFGS_SGT = 100 # default for derivative based methods
-params$MAXIT_NM_SGT = 1000 # default for NM is 500
+params$MAXIT_BFGS_SGT = 200 # default for derivative based methods
+params$MAXIT_NM_SGT = 2000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
 
 # GENERATE DATA
@@ -119,7 +120,7 @@ tt =
 
 # Parallel setup ####
 tt_optim_parallel = tt %>%
-  slice(params$IX_ARRAY_JOB) %>% 
+  slice((params$IX_ARRAY_JOB+1)%/%2) %>% 
   dplyr::select(theta_init, tmpl, data_list, shock_distr)
 
 params_parallel = lapply(1:nrow(tt_optim_parallel),
@@ -132,7 +133,7 @@ tibble_out =
   unnest_wider(value) %>% 
   unnest_wider(results_list) %>%
   unnest_wider(input_integerparams) %>% 
-  mutate(tt %>% slice(params$IX_ARRAY_JOB)) %>% 
+  mutate(tt %>% slice((params$IX_ARRAY_JOB+1)%/%2)) %>% 
   mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 12))) %>% 
   mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>% 
   mutate(true_irf = list(with(dgp_mod, pseries(sys, 12)%r%sigma_L))) %>% 
@@ -147,5 +148,4 @@ tibble_id <- paste0("/tibble_",
                     paste(sample(letters, 5), collapse = ""),
                     ".rds")
 
-saveRDS(tibble_out, file = paste0(new_dir_path, tibble_id))
-
+saveRDS(tibble_out, file = paste0(params$NEW_DIR, tibble_id))

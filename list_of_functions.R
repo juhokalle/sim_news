@@ -81,7 +81,7 @@ sim_news <- function(beta, rho,
 
 mixed_marg_dists <- function(dim_out, nu)
 {
-  function(x) c(replicate(x/dim_out, c(rnorm(2), stats::rt(dim_out-2, nu))))
+  function(x) c(replicate(x/dim_out, c(rnorm(2), sqrt(1-2/nu)*stats::rt(dim_out-2, nu))))
 }
 
 get_simu_model <- function(mod_tmpl, imp_mat)
