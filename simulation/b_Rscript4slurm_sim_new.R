@@ -36,8 +36,8 @@ params$penalty_prm = 100
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
-params$USE_BFGS_GAUSS = FALSE
-params$USE_NM_GAUSS = FALSE
+params$USE_BFGS_GAUSS = TRUE
+params$USE_NM_GAUSS = TRUE
 params$USE_CS_GAUSS = FALSE
 params$MAXIT_BFGS_GAUSS = 200
 params$MAXIT_NM_GAUSS = 3000

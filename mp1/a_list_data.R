@@ -97,19 +97,9 @@ baseline_data[rep(c(T, T, F), 6)] <- map(baseline_data[rep(c(T, T, F), 6)],
 #           )
 
 # standardise data and save sd's for later analysis
-dl <- baseline_data %>% map(~ .x %>% dplyr::select(-date))
 data_list <- tibble(data_list = map(dl, ~ .x %>% mutate_all(~(.x - mean(.x))/sd(.x))),
                     std_dev = map(dl, ~ apply(.x, 2, sd)))
-data_list <- data_list %>% 
-  bind_cols(FFR = rep(rep(c(T,F), each = 3), 3),
-            GS1 = rep(rep(c(F,T), each = 3), 3),
-            long_sample = rep(c(T,F,F), each = 6), 
-            short_sample = rep(c(F,T,F), each = 6), 
-            fgr_sample = rep(c(F,F,T), each = 6), 
-            log_level = rep(c(T,F,F), 6),
-            pi = rep(c(F,T,F), 6),
-            log_diff = rep(c(F,F,T), 6)
-            )
+
 # data_list <- data_list %>% 
 #   bind_cols(expand_grid(mp_type, mpr_lvl = c(T,F), log_lvl = c(T,F)))
 

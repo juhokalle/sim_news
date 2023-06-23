@@ -92,7 +92,8 @@ DATASET = do.call(what = simu_y,
                   args = list(model = dgp_mod, 
                               n.obs = n_obs,
                               rand.gen = rg_fun$fun,
-                              n.burnin = n_obs*2))$y
+                              n.burnin = 1000))$y
+rm(.Random.seed, envir=globalenv())
 
 # MODEL SPECIFICATION
 tt =

@@ -347,26 +347,37 @@ choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs", "m
 }
 
 # RESULTS: FIGS & TBLS
-plot_irf <- function(irf_arr, var_name, shock_name)
+plot_irf <- function(irf_arr, var_name = NULL, shock_name = NULL, date_break = 12)
 {
   n_var <- dim(irf_arr)[1]
+  if(is.null(var_name)) var_name <- letters[1:n_var]
   n_shock <- dim(irf_arr)[2]
+  if(is.null(shock_name)) shock_name <- paste0("e_", 1:n_shock)
   n_ahead <- dim(irf_arr)[3]-1
-  tibble(irf = c(irf_arr),
-         variable = var_name %>% 
-           factor(levels = var_name) %>% 
-           rep((n_ahead+1)*n_shock),
-         shock = shock_name %>% 
-           factor(levels=shock_name) %>% 
-           rep(each=n_var) %>% 
-           rep(n_ahead+1),
-         months = rep(0:n_ahead, each = n_var*n_shock)) %>% 
-    ggplot(aes(x=months, y = irf)) +
-    geom_line() +
+  if(length(dim(irf_arr))==4){
+    irf_tbl <- map(1:dim(irf_arr)[4], ~ c(irf_arr[,,,.x]))
+    names(irf_tbl) <- paste0("irf", 1:dim(irf_arr)[4])
+    irf_tbl <- as_tibble(irf_tbl)
+  } else{
+    irf_tbl <- tibble(irf = c(irf_arr))
+  }
+  
+  irf_tbl %>% 
+    bind_cols(variable = var_name %>% 
+                factor(levels = var_name) %>% 
+                rep((n_ahead+1)*n_shock),
+              shock = shock_name %>% 
+                factor(levels=shock_name) %>% 
+                rep(each=n_var) %>% 
+                rep(n_ahead+1),
+              months = rep(0:n_ahead, each = n_var*n_shock)) %>% 
+    pivot_longer(starts_with("irf")) %>% 
+    ggplot(aes(x=months, y=value)) +
+    geom_line(aes(linetype = name)) +
     geom_hline(yintercept = 0, size = 0.15) +
     facet_grid(variable ~ shock, scales = "free_y") +
     facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
-    scale_x_continuous(breaks = seq(12, n_ahead, by = 12), expand = c(0,0)) +
+    scale_x_continuous(breaks = seq(date_break, n_ahead, by = date_break), expand = c(0,0)) +
     scale_y_continuous(n.breaks = 5) +
     theme(legend.position = "none",
           axis.text.x = element_text(size = 6, angle = 0),
