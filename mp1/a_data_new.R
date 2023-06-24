@@ -52,6 +52,7 @@ data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1"),
                    dplyr::select(LIP, LCPI, FEDFUNDS, all_of(.x)) %>% 
                    filter(complete.cases(.))
                  )
+names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22")
 
 # save data
 saveRDS(data_list, "local_data/svarma_data_list.rds")

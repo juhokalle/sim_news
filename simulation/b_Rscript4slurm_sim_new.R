@@ -101,6 +101,8 @@ tt =
   unnest_longer(theta_init) %>% 
   mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   mutate(shock_distr = "tdist") %>% 
+  # update template accordingly template
+  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   filter(!(q==0 & init_ix>1))
 
 # Parallel setup ####
