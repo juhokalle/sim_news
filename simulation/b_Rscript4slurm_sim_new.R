@@ -100,8 +100,7 @@ tt =
   mutate(theta_init = map2(.x = theta_init, .y = tmpl, ~ perm_init(.x, params$PERM_INIT, .y))) %>% 
   unnest_longer(theta_init) %>% 
   mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
-  mutate(shock_distr = "tdist") %>% 
-  # update template accordingly template
+  mutate(shock_distr = "sgt") %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   filter(!(q==0 & init_ix>1))
 
@@ -122,23 +121,61 @@ tibble_out =
   group_by(q) %>%
   slice_min(value_final) %>%
   ungroup() %>%
-  # mutate(res = pmap(., pmap_get_residuals_once)) %>%
-  # mutate(B_mat = map2(params_deep_final, tmpl,
-  #                     ~fill_tmpl_whf_rev(theta = .x,
-  #                                        tmpl = .y)$B)) %>%
+  mutate(res = pmap(., pmap_get_residuals_once)) %>%
+  mutate(B_mat = map2(.x = params_deep_final, 
+                      .y = tmpl,
+                      ~fill_tmpl_whf_rev(theta = .x,
+                                         tmpl = .y)$B
+                      )
+         ) %>%
   # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, n_lags = 8))) %>% 
-  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y)) %>%  
-  mutate(true_irf = map(.x = beta, ~ with(sim_news(beta = .x, rho = 0.5, no_sim = TRUE),
-                                          pseries(sys, 8)%r%sigma_L))) %>% 
-  mutate(rmat = map2(.x = true_irf, .y = irf, ~ choose_perm_sign(target_mat = .x,
-                                                                 cand_mat = .y,
-                                                                 type = "min_rmse"))) %>% 
+  mutate(irf = map2(.x = params_deep_final, 
+                    .y = tmpl, 
+                    ~ irf_whf(.x, .y, n_lags = 8)
+                    )
+         ) %>% 
+  mutate(irf = map2(.x = sd_vec, 
+                    .y = irf, 
+                    ~ diag(.x)%r%.y
+                    )
+         ) %>%  
+  mutate(true_irf = map(.x = beta,
+                        ~with(sim_news(beta = .x, 
+                                       rho = 0.5, 
+                                       no_sim = TRUE),
+                              pseries(sys, 8)%r%sigma_L
+                              )
+                        )
+         ) %>% 
+  mutate(rmat = map2(.x = true_irf, 
+                     .y = irf, 
+                     ~ choose_perm_sign(target_mat = .x,
+                                        cand_mat = .y,
+                                        type = "min_rmse")
+                     )
+         ) %>% 
   # mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   # mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
   #                                                         zr_ix = c(1,2),
   #                                                         opt_it = FALSE))) %>%
-  mutate(irf = map2(.x = irf, .y = rmat, ~ .x%r%.y)) %>% 
+  mutate(irf = map2(.x = irf,
+                    .y = rmat,
+                    ~ .x%r%.y
+                    )
+         ) %>%
+  # mutate(res = pmap(., pmap_get_residuals_once)) %>% 
+  # mutate(B_mat = map2(.x = params_deep_final, 
+  #                     .y = tmpl, 
+  #                     ~fill_tmpl_whf_rev(theta = .x, 
+  #                                        tmpl = .y)$B
+  #                     )
+  #        ) %>% 
+  # mutate(shocks = map2(.x = res, 
+  #                      .y = B_mat, 
+  #                      ~ solve(.y, t(.x)) %>% t()
+  #                      )
+  #        ) %>% 
+  # mutate(Sigma = map(.x = shocks, ~ cov(.x)))
   dplyr::select(p, q, kappa, k, beta, nu, value_final, irf, params_deep_final, tmpl)
 
 tibble_id <- paste0("/tibble_",

@@ -46,13 +46,17 @@ SSR$date <- seq(ym(199501), by= "month", length.out = nrow(SSR))
 fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>% 
   reduce(left_join, by = "date")
 
-data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1"), 
-                 ~ fred_md %>%
-                   filter(date>=ym(199401), date<=ym(201912)) %>% 
-                   dplyr::select(LIP, LCPI, FEDFUNDS, all_of(.x)) %>% 
-                   filter(complete.cases(.))
-                 )
-names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22")
+# data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1"), 
+#                  ~ fred_md %>%
+#                    filter(date>=ym(199401), date<=ym(201912)) %>% 
+#                    dplyr::select(LIP, LCPI, WX, all_of(.x)) %>% 
+#                    filter(complete.cases(.))
+#                  )
+# names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22")
+data_list <- fred_md %>%
+  filter(date>=ym(199401), date<=ym(201912)) %>% 
+  dplyr::select(LIP, LCPI, WX) %>% 
+  list()
 
 # save data
 saveRDS(data_list, "local_data/svarma_data_list.rds")
