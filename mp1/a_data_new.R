@@ -55,7 +55,7 @@ fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>%
 # names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22")
 data_list <- fred_md %>%
   filter(date>=ym(199401), date<=ym(201912)) %>% 
-  dplyr::select(LIP, LCPI, WX) %>% 
+  dplyr::select(DLIP, DLCPI, WX) %>% 
   list()
 
 # save data

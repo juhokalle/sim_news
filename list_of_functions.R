@@ -46,6 +46,7 @@ simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
   # generate disturbances
   u = matrix(rand.gen((n.obs+n.burnin)*n), nrow = n, ncol = n.obs+n.burnin)
   u = model$sigma_L %*% t(solve(chol(var(t(u[, (n.burnin+1):(n.burnin+n.obs)]))))) %*% u
+  u = u - tcrossprod(rowMeans(u[,(n.burnin+1):(n.burnin+n.obs)]), rep(1, n.obs+n.burnin))
   # outputs
   y = matrix(0, nrow = m, ncol = n.obs+n.burnin)
   svarmawhf::solve_ARMA_cpp(a, b, u, y, 1)

@@ -23,7 +23,7 @@ params$NEW_DIR = args[5]
 
 ## general
 params$RESTART_W_NOISE = 1
-params$PERM_INIT = 4
+params$PERM_INIT = 19
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 100
@@ -68,15 +68,15 @@ params$DIM_OUT = DIM_OUT
 # Tibble with integer-valued parameters
 tt = 
   # orders (p,q)
-  expand_grid(p = 0:params$AR_ORDER_MAX,
-              q = 0:params$MA_ORDER_MAX) %>% 
-  filter(!(p == 0 & q == 0)) %>% 
+  expand_grid(p = 1:params$AR_ORDER_MAX,
+              q = 1:params$MA_ORDER_MAX) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
   unnest(n_unst) %>% 
   mutate(n_st = DIM_OUT * q - n_unst) %>% 
   mutate(kappa = n_unst %/% DIM_OUT,
          k = n_unst %% DIM_OUT) %>% 
+  filter(n_unst<=params$MA_ORDER_MAX*DIM_OUT/2) %>% 
   # Estimate SVAR(12) for comparison 
   bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   # Join data sets and use two distributions for the estimation
@@ -109,7 +109,7 @@ tt =
   unnest_longer(theta_init) %>% 
   mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
-  expand_grid(shock_distr = c("skewed_t", "sgt")) %>% 
+  expand_grid(shock_distr = c("tdist", "skewed_t")) %>% 
   filter(!(q==0 & init_ix>1))
 
 # Parallel setup ####

@@ -29,7 +29,7 @@ params$NEW_DIR = args[5]
 
 ## general
 params$RESTART_W_NOISE = 1
-params$PERM_INIT = 4
+params$PERM_INIT = 1
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 100
