@@ -87,13 +87,6 @@ tt =
                          ~ apply(.x, 2, function(x) (x - mean(x))/sd(x))
                          )
          ) %>%
-  # Select a subset of models to be estimated according to slurm task 
-  slice(split(x = 1:n(), 
-              f = cut(x = 1:n(), 
-                      breaks = params$SLURM_ARRAY_TASK_MAX))[[params$IX_ARRAY_JOB]]
-        ) %>% 
-  # template
-  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map2(.x = data_list, 
                            .y = tmpl, 
@@ -110,6 +103,13 @@ tt =
   mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
   expand_grid(shock_distr = c("tdist", "skewed_t")) %>% 
+  # Select a subset of models to be estimated according to slurm task 
+  slice(split(x = 1:n(), 
+              f = cut(x = 1:n(), 
+                      breaks = params$SLURM_ARRAY_TASK_MAX))[[params$IX_ARRAY_JOB]]
+        ) %>% 
+  # template
+  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
   filter(!(q==0 & init_ix>1))
 
 # Parallel setup ####

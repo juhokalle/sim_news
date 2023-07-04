@@ -29,7 +29,7 @@ params$NEW_DIR = args[5]
 
 ## general
 params$RESTART_W_NOISE = 1
-params$PERM_INIT = 1
+params$PERM_INIT = 5
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 100
@@ -91,8 +91,12 @@ tt =
   # expand_grid(sim_prm, data_list = sim_obj) %>%
   expand_grid(sim_prm) %>%
   mutate(data_list = list(sim_obj$y$y)) %>% 
-  mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
-  mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x))/sd(x)))) %>% 
+  # mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
+  # mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x))/sd(x)))) %>% 
+  mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x-mean(x)
+                                                 )
+                         )
+         )
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
@@ -100,7 +104,7 @@ tt =
   mutate(theta_init = map2(.x = theta_init, .y = tmpl, ~ perm_init(.x, params$PERM_INIT, .y))) %>% 
   unnest_longer(theta_init) %>% 
   mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
-  mutate(shock_distr = "sgt") %>%
+  mutate(shock_distr = "tdist") %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   filter(!(q==0 & init_ix>1))
 
@@ -134,11 +138,11 @@ tibble_out =
                     ~ irf_whf(.x, .y, n_lags = 8)
                     )
          ) %>% 
-  mutate(irf = map2(.x = sd_vec, 
-                    .y = irf, 
-                    ~ diag(.x)%r%.y
-                    )
-         ) %>%  
+  # mutate(irf = map2(.x = sd_vec, 
+  #                   .y = irf, 
+  #                   ~ diag(.x)%r%.y
+  #                   )
+  #        ) %>%  
   mutate(true_irf = map(.x = beta,
                         ~with(sim_news(beta = .x, 
                                        rho = 0.5, 
