@@ -96,7 +96,7 @@ tt =
   mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x-mean(x)
                                                  )
                          )
-         )
+         ) %>% 
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)

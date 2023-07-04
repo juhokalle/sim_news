@@ -23,7 +23,7 @@ params$NEW_DIR = args[5]
 
 ## general
 params$RESTART_W_NOISE = 1
-params$PERM_INIT = 19
+params$PERM_INIT = 1
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 100
@@ -78,9 +78,14 @@ tt =
          k = n_unst %% DIM_OUT) %>% 
   filter(n_unst<=params$MA_ORDER_MAX*DIM_OUT/2) %>% 
   # Estimate SVAR(12) for comparison 
-  bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
+  # bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   # Join data sets and use two distributions for the estimation
   expand_grid(data_list = DATASET) %>% 
+  # Select a subset of models to be estimated according to slurm task 
+  slice(split(x = 1:n(), 
+              f = cut(x = 1:n(), 
+                      breaks = params$SLURM_ARRAY_TASK_MAX))[[params$IX_ARRAY_JOB]]
+        ) %>% 
   # Standardize data and save sd's for IRFs
   mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
   mutate(data_list = map(.x = data_list, 
@@ -96,21 +101,16 @@ tt =
   # estimate with a set of initial values
   mutate(theta_init = map2(.x = theta_init, 
                            .y = tmpl, 
-                           ~ perm_init(.x, params$PERM_INIT, .y)
+                           ~ perm_init(.x, params$PERM_INIT, .y)[[2]]
                            )
          ) %>% 
-  unnest_longer(theta_init) %>% 
-  mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
+  # unnest_longer(theta_init) %>% 
+  # mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
   expand_grid(shock_distr = c("tdist", "skewed_t")) %>% 
-  # Select a subset of models to be estimated according to slurm task 
-  slice(split(x = 1:n(), 
-              f = cut(x = 1:n(), 
-                      breaks = params$SLURM_ARRAY_TASK_MAX))[[params$IX_ARRAY_JOB]]
-        ) %>% 
   # template
-  mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>%
-  filter(!(q==0 & init_ix>1))
+  mutate(tmpl = pmap(., pmap_tmpl_whf_rev))
+  # filter(!(q==0 & init_ix>1))
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
@@ -140,10 +140,10 @@ tibble_out =
   unnest_wider(value) %>% 
   unnest_wider(results_list) %>%
   unnest_wider(input_integerparams) %>% 
-  mutate(tt) %>%
-  group_by(p, q, kappa, k, shock_distr, data_list) %>%
-  slice_min(value_final) %>%
-  ungroup()
+  mutate(tt)
+  # group_by(p, q, kappa, k, shock_distr, data_list) %>%
+  # slice_min(value_final) %>%
+  # ungroup()
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
