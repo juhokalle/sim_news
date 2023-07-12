@@ -745,3 +745,42 @@ plot_irfs <- function(){
     }
   }
 }
+
+get_res_app1 <- function(res_tbl)
+{
+  nobs <- sort(unique(res_tbl$nobs))
+  row_1 <- paste0("\\multicolumn{2}{c}{$T=", nobs, "$}", collapse = " & ")
+  col_ix <- 2 + seq(1, 2*length(nobs), by = 2)
+  row_2 <- paste0("\\cmidrule(lr){", col_ix, "-", col_ix+1, "}")
+  row_3 <- paste0(rep(c(" SVARMA ", " SVAR "), length(nobs)), collapse ="&")
+  tmp_tbl <- res_tbl %>% 
+    pivot_wider(names_from = c(nobs, p),
+                values_from = mad_md) %>% 
+    mutate(beta = factor(beta),
+           nu = factor(nu)) %>% 
+    mutate_if(is.numeric, round, digits=3) %>% 
+    as.matrix
+  rest_str <- sapply(1:length(tmp_tbl), 
+                     function(x) paste(t(tmp_tbl)[x], 
+                                       ifelse(test = x%%ncol(tmp_tbl), 
+                                              yes = " & ", 
+                                              no = "\\\\ \n \\addlinespace \n"
+                                       )
+                     )
+  ) %>% 
+    paste(collapse = "")
+  
+  cat("\\begin{table} \n",
+      "\\centering \n",
+      paste0("\\begin{tabular}{l*{", 2+2*length(nobs), "}{c}} \n"),
+      "\\toprule \n",
+      "& & ", row_1, "\\\\ \n",
+      row_2, "\n",
+      "$\\beta$ & $m$ &", row_3, "\\\\ \n",
+      "\\midrule \n",
+      rest_str,
+      "\\bottomrule \n",
+      "\\end{tabular} \n",
+      "\\end{table}"
+  )
+}

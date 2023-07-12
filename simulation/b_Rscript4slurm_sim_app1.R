@@ -1,8 +1,9 @@
 # ------------------------------------------------------------- #
 # Script to be called via SLURM ------------------------------- #
 # ------------------------------------------------------------- #
-# This is the main simulation script -------------------------- #
-# 1) Simulate data from the underlying structural model ------- #
+# This is the auxiliary simulation script --------------------- #
+# 1) Simulate data from the underlying structural model, ------ #
+# with different values for the number of observations -------- #
 # 2) Estimate model with the pre-specified model specifications #
 # 3) Calculate the IRF and other objects of interest ---------- #
 # 4) Save the resulting tibble with random named file name ---- #
@@ -63,9 +64,8 @@ params$MAXIT_CS_SGT = 500
 
 # SIMULATION SPECS: MODEL PARAMS
 sim_prm <- expand_grid(beta = c(0.5, 0.9), 
-                       rho = 0.5, 
-                       #nobs = 250, 
-                       nobs = 250,
+                       rho = 0.5,
+                       nobs = c(100, 500, 1000),
                        nu = c(3, 20))
 sim_prm <- sim_prm[(params$IX_ARRAY_JOB-1)%/%(params$SLURM_ARRAY_TASK_MAX/nrow(sim_prm))+1, ]
 DIM_OUT <- 2
@@ -89,11 +89,8 @@ tt =
   # VAR benchmark
   bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   # this way of including data makes it convenient for slicing
-  # expand_grid(sim_prm, data_list = sim_obj) %>%
   expand_grid(sim_prm) %>%
   mutate(data_list = list(sim_obj$y$y)) %>% 
-  # mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>% 
-  # mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) (x-mean(x))/sd(x)))) %>% 
   mutate(data_list = map(.x = data_list, ~ apply(.x, 2, function(x) x-mean(x)
                                                  )
                          )
@@ -126,24 +123,11 @@ tibble_out =
   group_by(q) %>%
   slice_min(value_final) %>%
   ungroup() %>%
-  mutate(res = pmap(., pmap_get_residuals_once)) %>%
-  mutate(B_mat = map2(.x = params_deep_final, 
-                      .y = tmpl,
-                      ~fill_tmpl_whf_rev(theta = .x,
-                                         tmpl = .y)$B
-                      )
-         ) %>%
-  # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
   mutate(irf = map2(.x = params_deep_final, 
                     .y = tmpl, 
                     ~ irf_whf(.x, .y, n_lags = 8)
                     )
          ) %>% 
-  # mutate(irf = map2(.x = sd_vec, 
-  #                   .y = irf, 
-  #                   ~ diag(.x)%r%.y
-  #                   )
-  #        ) %>%  
   mutate(true_irf = map(.x = beta,
                         ~with(sim_news(beta = .x, 
                                        rho = 0.5, 
@@ -159,29 +143,24 @@ tibble_out =
                                         type = "min_rmse")
                      )
          ) %>% 
-  # mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
-  # mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
-  #                                                         zr_ix = c(1,2),
-  #                                                         opt_it = FALSE))) %>%
+  mutate(rmat = map2(.x = irf, 
+                     .y = rmat, 
+                     ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
+                                     zr_ix = c(1,2),
+                                     opt_it = FALSE)
+                     )
+         ) %>%
   mutate(irf = map2(.x = irf,
                     .y = rmat,
                     ~ .x%r%.y
                     )
          ) %>%
-  # mutate(res = pmap(., pmap_get_residuals_once)) %>% 
-  # mutate(B_mat = map2(.x = params_deep_final, 
-  #                     .y = tmpl, 
-  #                     ~fill_tmpl_whf_rev(theta = .x, 
-  #                                        tmpl = .y)$B
-  #                     )
-  #        ) %>% 
-  # mutate(shocks = map2(.x = res, 
-  #                      .y = B_mat, 
-  #                      ~ solve(.y, t(.x)) %>% t()
-  #                      )
-  #        ) %>% 
-  # mutate(Sigma = map(.x = shocks, ~ cov(.x)))
-  dplyr::select(p, q, kappa, k, beta, nu, value_final, irf, params_deep_final, tmpl)
+  mutate(mad = map2_dbl(.x = irf,
+                        .y = true_irf,
+                        ~ mean(abs(unclass(.x-.y)))
+                        )
+         ) %>% 
+  dplyr::select(beta, nu, p, nobs, mad, irf)
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
