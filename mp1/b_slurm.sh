@@ -12,7 +12,7 @@
 #SBATCH --array=1-32
 
 ROOT_PATH="/proj/juhokois/sim_news/local_data/jobid_"
-MANUALLY_ASSIGNED_ID=20230704
+MANUALLY_ASSIGNED_ID=20230801
 NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 
 mkdir -p $NEW_DIR

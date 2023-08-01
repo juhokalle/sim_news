@@ -113,8 +113,13 @@ tt =
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
-  mutate(theta_init = map2(.x = data_list, .y = tmpl, ~get_init_armamod_whf_random(.x, .y))) %>%
-  mutate(theta_init = map2(.x = theta_init, .y = tmpl, ~ perm_init(.x, 1, .y)[[2]])) %>% 
+  mutate(theta_init = map2(.x = data_list, 
+                           .y = tmpl, 
+                           ~ get_init_armamod_whf_random(.x, .y) %>% 
+                             perm_init(n_perms = 1, 
+                                       tmpl = .y)[[2]]
+                           )
+         ) %>%
   mutate(shock_distr = "tdist") %>% 
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev))
 

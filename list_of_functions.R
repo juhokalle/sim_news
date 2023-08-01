@@ -765,9 +765,9 @@ get_res_app1 <- function(res_tbl)
                                        ifelse(test = x%%ncol(tmp_tbl), 
                                               yes = " & ", 
                                               no = "\\\\ \n \\addlinespace \n"
+                                              )
                                        )
-                     )
-  ) %>% 
+                     ) %>% 
     paste(collapse = "")
   
   cat("\\begin{table} \n",
