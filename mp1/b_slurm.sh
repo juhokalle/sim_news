@@ -3,7 +3,7 @@
 #SBATCH --job-name=svarma_simu
 #SBATCH -N 1
 #SBATCH -p short
-#SBATCH -t 01:00:00
+#SBATCH -t 02:00:00
 #SBATCH --ntasks=120
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1000
