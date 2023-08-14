@@ -19,12 +19,17 @@ if(!file.exists("local_data/fred_md.rds")){
            DLCPI = c(NA, diff(LCPI)),
            DLIP = c(NA, diff(LIP)),
            SP500 = 100*log(`S&P 500`)) %>% 
-    filter(date>ym(197212))
+    filter(date>ym(197212), date<ym(202001))
   
   # Additional variables ####
   # EBP
   ebp <- read_csv("https://www.federalreserve.gov/econres/notes/feds-notes/ebp_csv.csv")
   fred_md$EBP <- ebp$ebp[1:nrow(fred_md)]
+  # CRB commodity price index
+  fred_md$PCOMM <- readxl::read_excel("local_data/FOMC_Bauer_Swanson.xlsx",
+                                      sheet = "Monthly SVAR Data")$`CRB Pcomm` %>% 
+    head(-2)
+  fred_md$PCOMM <- c(rep(NA, 35), hfilter(100*log(fred_md$PCOMM))$cycle)
   saveRDS(fred_md, "local_data/fred_md.rds")
 } else{
   fred_md <- readRDS("local_data/fred_md.rds")
@@ -50,7 +55,7 @@ fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>%
 data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1"),
                  ~ fred_md %>%
                    filter(date>=ym(199401), date<=ym(201912)) %>%
-                   dplyr::select(LIP, LCPI, WX, EBP, all_of(.x)) %>%
+                   dplyr::select(LIP, LCPI, WX, PCOMM, all_of(.x)) %>%
                    filter(complete.cases(.))
                  )
 names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22")
