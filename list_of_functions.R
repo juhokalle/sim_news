@@ -347,6 +347,110 @@ choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs", "m
   rt_opt
 }
 
+id_sign <- function(chol_irf, ndraws=1e3, sign_rest, max_draws=1e5){
+  irf_dim <- if(length(dim(chol_irf))==2) c(dim(chol_irf), 1) else dim(chol_irf)
+  dim(chol_irf) <- irf_dim
+  nvar <- irf_dim[1]
+  perm_ix <- nvar %>% 
+    replicate(list(1:nvar)) %>% 
+    expand.grid %>% 
+    filter(apply(., 1, n_distinct)==nvar) %>% 
+    as.matrix()
+  imp_arr <- array(data = NA, dim = c(irf_dim, ndraws))
+  i <- 1
+  loop_counter <- 1
+  while(i <= ndraws && loop_counter <= max_draws){
+    qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
+    qr_q <- qr.Q(qr_obj)
+    qr_r <- qr.R(qr_obj)
+    rot_comp <- FALSE
+    j <- 1
+    while(!rot_comp){
+      ort_mat <- qr_q%*%diag(sign(diag(qr_r)))%*%diag(nvar)[, perm_ix[j,]]
+      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      sign_ix <- which(is.finite(sign_rest))
+      rot_ok <- min(diag(sign_rest[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
+      rot_comp <- rot_ok || j == nrow(perm_ix)
+      j <- j + 1
+    }
+    if(rot_ok) i <- i + 1
+    loop_counter <- loop_counter + 1
+  }
+  if(ndraws>i){
+    stop("Failed to find the requested number of impulse responses matching the sign restrictions.")
+  } else{
+    drop(imp_arr)
+  }
+}
+
+id_mixed <- function(chol_irf, sign_mat, policy_var, 
+                     mp_hor=24, zr_ix = NULL,
+                     ndraws=1e3, max_draws = 1e6, 
+                     verbose=FALSE){
+  
+  irf_dim <- dim(chol_irf)
+  nvar <- irf_dim[1]
+  imp_arr <- array(NA, c(irf_dim, ndraws))
+  omat_arr <- array(NA, c(nvar, nvar, ndraws))
+  if(verbose) cat("Estimation in progress")  
+  i <- 1
+  loop_counter <- 1
+  while(i <= ndraws && loop_counter <= max_draws){
+    qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
+    qr_q <- qr.Q(qr_obj)
+    qr_r <- qr.R(qr_obj)
+    ort_mat <- qr_q%*%diag(sign(diag(qr_r)))
+    imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+    mp_ix <- id_policy_shox(imp_arr[,,1:(mp_hor+1),i], 
+                            policy_var = policy_var,
+                            n_shox = 2)
+    mp_aux <- id_policy_shox(imp_arr[,mp_ix,1:6,i], 
+                             policy_var = policy_var,
+                             n_shox = 1)
+    mp_ix <- c(mp_ix[mp_aux], mp_ix[-mp_aux])
+    ort_mat <- ort_mat%*%diag(nvar)[,c((1:nvar)[-mp_ix], mp_ix)]
+    imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+    if(!is.null(zr_ix)){
+      ort_mat <- ort_mat%*%optim_zr(imp_arr[,,1,i], zr_ix = zr_ix, opt_it = FALSE)
+      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      omat_arr[,,i] <- ort_mat
+    }
+    rest_ix <- apply(sign_mat, 2, function(x) any(is.finite(x)))
+    j <- 1
+    rot_complete <- FALSE
+    while(!rot_complete){
+      # flip sign
+      flip_sign <- get_sign_mat(rest_ix, nvar)
+      ort_mat <- ort_mat%*%flip_sign[[j]]
+      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      omat_arr[,,i] <- ort_mat
+      
+      sign_ix <- which(is.finite(sign_mat))
+      rot_ok <- min(diag(sign_mat[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
+      rot_complete <- rot_ok || j <= 2^length(rest_ix)
+      j <- j + 1
+    }
+
+    if(rot_ok){
+      i <- i + 1
+      if(verbose){
+        grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
+        if(i%in%grid_check) cat(".")
+        if(i%in%grid_check[seq(5,20,by=5)]) cat("|")
+        if(i==grid_check[length(grid_check)]) cat("\n")
+      }
+    }
+    loop_counter <- loop_counter+1
+  }
+  if(ndraws>=i) warning("Failed to find the requested number of 
+                        impulse responses matching the sign restrictions.")
+  
+  list(irf = drop(imp_arr[,(nvar-1):nvar,,1:(i-1)]), 
+       bmat = omat_arr, 
+       draws_total = loop_counter - 1)
+}
+
+
 # RESULTS: FIGS & TBLS
 plot_irf <- function(irf_arr, var_name = NULL, shock_name = NULL, date_break = 12)
 {
@@ -356,10 +460,12 @@ plot_irf <- function(irf_arr, var_name = NULL, shock_name = NULL, date_break = 1
   if(is.null(shock_name)) shock_name <- paste0("e_", 1:n_shock)
   n_ahead <- dim(irf_arr)[3]-1
   if(length(dim(irf_arr))==4){
-    irf_tbl <- map(1:dim(irf_arr)[4], ~ c(irf_arr[,,,.x]))
-    names(irf_tbl) <- paste0("irf", 1:dim(irf_arr)[4])
+    n_qt <- dim(irf_arr)[4]
+    irf_tbl <- map(1:n_qt, ~ c(irf_arr[,,,.x]))
+    names(irf_tbl) <- paste0("irf", 1:n_qt)
     irf_tbl <- as_tibble(irf_tbl)
   } else{
+    n_qt <- 1
     irf_tbl <- tibble(irf = c(irf_arr))
   }
   
@@ -374,7 +480,8 @@ plot_irf <- function(irf_arr, var_name = NULL, shock_name = NULL, date_break = 1
               months = rep(0:n_ahead, each = n_var*n_shock)) %>% 
     pivot_longer(starts_with("irf")) %>% 
     ggplot(aes(x=months, y=value)) +
-    geom_line(aes(linetype = name)) +
+    geom_line(aes(linetype = name)) + 
+    scale_linetype_manual(values = abs(-(n_qt%/%2):(n_qt%/%2)) + 1) + #aes(linetype = name)) +
     geom_hline(yintercept = 0, size = 0.15) +
     facet_grid(variable ~ shock, scales = "free_y") +
     facet_rep_grid(variable ~ shock, scales = "free_y", repeat.tick.labels = 'left') +
@@ -457,13 +564,13 @@ get_qqplots <- function(x)
       ylab("") +
       xlab("") +
       if(j==1){
-        ggtitle(bquote(epsilon[1]))
+        ggtitle(bquote(u[1]))
       } else if (j==2){
-        ggtitle(bquote(epsilon[2]))
+        ggtitle(bquote(u[2]))
       } else if (j==3){
-        ggtitle(bquote(epsilon[3]))
+        ggtitle(bquote(u[3]))
       } else if (j==4){
-        ggtitle(bquote(epsilon[4]))
+        ggtitle(bquote(u[4]))
       }
     plot_list[[j]] <- p + theme(plot.title = element_text(hjust = 0.5))
   }
@@ -570,14 +677,15 @@ k_kappa2nunst <- function(q, dim_out, k, kappa){
 }
 
 # Tools related to structrual models
-get_struc_mat <- function(model_type = c("dynamic", "static", "r_smooth"), param_list = NULL){
+get_struc_mat <- function(model_type = c("dynamic", "static", "static_small", "r_smooth"), 
+                          param_list = NULL){
 
   if(model_type == "dynamic"){
     
-    if(is.null(param_list)) param_list <- prms <- list(beta = .99, kappa = .05, gamma = .5,
-                                                       delta_x = .1, alfa = .5, 
-                                                       tau_pi = 1.8, tau_x = .5, tau_r = .6, 
-                                                       rho_pi = .5, rho_x = .5, rho_r = .5)
+    if(is.null(param_list)) param_list <- list(beta = .99, kappa = .05, gamma = .5,
+                                               delta_x = .1, alfa = .5, 
+                                               tau_pi = 1.8, tau_x = .5, tau_r = .6, 
+                                               rho_pi = .5, rho_x = .5, rho_r = .5)
     param_vec <- c("beta", "alfa", "kappa", "gamma", "delta_x", 
                    "tau_x", "tau_pi", "tau_r", 
                    "rho_x", "rho_pi", "rho_r")
@@ -625,6 +733,36 @@ get_struc_mat <- function(model_type = c("dynamic", "static", "r_smooth"), param
     
     Dmat <- matrix(0, 3, 3)
   
+  } else if(model_type == "static_small"){
+    
+    if(is.null(param_list)) param_list <- list(sigma = .4, gamma = .75, psi = 2, beta = 0.995,
+                                               sigma_d = 1.6, sigma_s = 0.95, sigma_m = 0.23)
+    
+    param_vec <- c("sigma", "gamma",
+                   "psi", "beta",
+                   "sigma_d", "sigma_s", "sigma_m")
+    
+    check_vec <- param_vec%in%names(param_list)
+    
+    if(!all(check_vec)) stop("The following parameters are missing: ", 
+                             paste(param_vec[!check_vec], collapse = ", "))
+    
+    
+    Kmat <- with(param_list, matrix(c(1, -gamma, 0,
+                                      0, 1, -psi,
+                                      sigma, 0, 1), 3, 3))
+    Amat <- matrix(0, 3, 3)
+    
+    Bmat <- with(param_list, matrix(c(1, 0, 0,
+                                      sigma, beta, 0,
+                                      0, 0, 0),
+                                    3, 3)
+                 )
+    
+    Hmat <- with(param_list, diag(c(sigma_d, sigma_s, sigma_m)))
+    
+    Dmat <- matrix(0,3,3)
+    
   } else if(model_type == "r_smooth"){
     
     if(is.null(param_list)) param_list <- list(beta = .99, kappa = .75, tau = 2.08^-1,
@@ -783,4 +921,23 @@ get_res_app1 <- function(res_tbl)
       "\\end{tabular} \n",
       "\\end{table}"
   )
+}
+
+get_sign_mat <- function(col_ix, nvar){
+  if(length(col_ix) == 0){
+    flip_sign <- list(diag(nvar))
+  } else if(length(col_ix) == 1){
+    tmp_mat <- diag(nvar)
+    tmp_mat[col_ix, col_ix] <- -1
+    flip_sign <- list(tmp_mat%*%tmp_mat, tmp_mat)
+  } else{
+    flip_sign <- length(col_ix) %>% 
+      replicate(list(c(-1,1))) %>% 
+      expand.grid %>% 
+      t %>% 
+      data.frame %>% 
+      as.list %>% 
+      lapply(function(x) diag(c(rep(1,nvar-2), x)))
+    }
+  flip_sign
 }

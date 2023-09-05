@@ -13,8 +13,8 @@ if(!file.exists("local_data/fred_md.rds")){
                     transform = FALSE,
                     date_start = ym(197201)) %>%
     as_tibble() %>% 
-    mutate(LIP = c(rep(NA,35), hfilter(100*log(INDPRO))$cycle),
-           LCPI = c(rep(NA,35), hfilter(100*log(CPIAUCSL))$cycle),
+    mutate(LIP = 100*log(INDPRO), 
+           LCPI = 100*log(CPIAUCSL),
            PI = c(rep(NA, 12), diff(LCPI, 12)),
            DLCPI = c(NA, diff(LCPI)),
            DLIP = c(NA, diff(LIP)),
@@ -53,13 +53,13 @@ SSR$date <- seq(ym(199501), by= "month", length.out = nrow(SSR))
 fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>% 
   reduce(left_join, by = "date")
 
-data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1"),
+data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1", "MP_median"),
                  ~ fred_md %>%
-                   filter(date>=ym(200308), date<=ym(201912)) %>%
-                   dplyr::select(LIP, PI, WX, all_of(.x)) %>%
+                   filter(date>=ym(199401), date<=ym(201912)) %>%
+                   dplyr::select(LIP, LCPI, WX, all_of(.x)) %>%
                    filter(complete.cases(.))
                  )
-names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22")
+names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22", "JK21")
 # data_list <- fred_md %>%
 #   filter(date>=ym(199401), date<=ym(201912)) %>% 
 #   dplyr::select(LIP, LCPI, EBP, WX) %>% 

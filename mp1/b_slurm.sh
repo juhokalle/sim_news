@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -M ukko
-#SBATCH --job-name=svarma_simu
+#SBATCH --job-name=mp_est
 #SBATCH -N 1
 #SBATCH -p short
 #SBATCH -t 00:15:00
@@ -9,10 +9,10 @@
 #SBATCH --mem=16000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-324
+#SBATCH --array=1-405
 
 ROOT_PATH="/proj/juhokois/sim_news/local_data/jobid_"
-MANUALLY_ASSIGNED_ID=20230821
+MANUALLY_ASSIGNED_ID=20230905
 NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 
 mkdir -p $NEW_DIR
