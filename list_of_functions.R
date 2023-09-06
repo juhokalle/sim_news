@@ -387,44 +387,56 @@ id_mixed <- function(chol_irf, sign_mat, policy_var,
                      mp_hor=24, zr_ix = NULL,
                      ndraws=1e3, max_draws = 1e6, 
                      verbose=FALSE){
-  
+  # Extract IRF dimension
   irf_dim <- dim(chol_irf)
+  # Number of variables
   nvar <- irf_dim[1]
+  # Initialize output to arrays: IRFs and resulting orthogonal matrices
   imp_arr <- array(NA, c(irf_dim, ndraws))
   omat_arr <- array(NA, c(nvar, nvar, ndraws))
   if(verbose) cat("Estimation in progress")  
+  # Initialization
   i <- 1
   loop_counter <- 1
   while(i <= ndraws && loop_counter <= max_draws){
+    # Generate random orth. matrix using QR decomp
     qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
     qr_q <- qr.Q(qr_obj)
     qr_r <- qr.R(qr_obj)
+    # Normalize signs of columns, according to Kilian Lutkepohl ch. 13
     ort_mat <- qr_q%*%diag(sign(diag(qr_r)))
+    # Calculate Cholesky IRFs
     imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+    # Obtain FEVD determining the MP and FG shocks and their mutual ordering
     mp_ix <- id_policy_shox(imp_arr[,,1:(mp_hor+1),i], 
                             policy_var = policy_var,
                             n_shox = 2)
-    mp_aux <- id_policy_shox(imp_arr[,mp_ix,1:6,i], 
-                             policy_var = policy_var,
-                             n_shox = 1)
-    mp_ix <- c(mp_ix[mp_aux], mp_ix[-mp_aux])
+    mp_ix <- mp_ix[order(abs(imp_arr[policy_var,mp_ix,1,i]), decreasing = TRUE)]
+    # Update orthogonal matrix
     ort_mat <- ort_mat%*%diag(nvar)[,c((1:nvar)[-mp_ix], mp_ix)]
+    # Update IRF
     imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
     if(!is.null(zr_ix)){
+      # Impose zero restrictions via Givens rotation
       ort_mat <- ort_mat%*%optim_zr(imp_arr[,,1,i], zr_ix = zr_ix, opt_it = FALSE)
+      # Update IRF
       imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      # Update orth. matrix
       omat_arr[,,i] <- ort_mat
     }
+    # Index for columns containing sign restrictions
     rest_ix <- apply(sign_mat, 2, function(x) any(is.finite(x)))
+    # Initialization for sign flipping loop
     j <- 1
     rot_complete <- FALSE
     while(!rot_complete){
-      # flip sign
-      flip_sign <- get_sign_mat(rest_ix, nvar)
+      # Flip signs
+      flip_sign <- get_sign_mat(which(rest_ix), nvar)
+      # Update update update
       ort_mat <- ort_mat%*%flip_sign[[j]]
       imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
       omat_arr[,,i] <- ort_mat
-      
+      # Check sign restrictions
       sign_ix <- which(is.finite(sign_mat))
       rot_ok <- min(diag(sign_mat[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
       rot_complete <- rot_ok || j <= 2^length(rest_ix)
@@ -432,19 +444,22 @@ id_mixed <- function(chol_irf, sign_mat, policy_var,
     }
 
     if(rot_ok){
+      # Increase loop index if signs match
       i <- i + 1
       if(verbose){
+        # progress bar
         grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
         if(i%in%grid_check) cat(".")
         if(i%in%grid_check[seq(5,20,by=5)]) cat("|")
         if(i==grid_check[length(grid_check)]) cat("\n")
       }
     }
+    # Update maximum draws counter
     loop_counter <- loop_counter+1
   }
   if(ndraws>=i) warning("Failed to find the requested number of 
                         impulse responses matching the sign restrictions.")
-  
+  # Output
   list(irf = drop(imp_arr[,(nvar-1):nvar,,1:(i-1)]), 
        bmat = omat_arr, 
        draws_total = loop_counter - 1)
