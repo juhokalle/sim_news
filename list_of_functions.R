@@ -385,7 +385,7 @@ id_sign <- function(chol_irf, ndraws=1e3, sign_rest, max_draws=1e5){
 
 id_mixed <- function(chol_irf, sign_mat, policy_var, 
                      mp_hor=24, zr_ix = NULL,
-                     ndraws=1e3, max_draws = 1e6, 
+                     ndraws=1e3, max_draws = ndraws*100, 
                      verbose=FALSE){
   # Extract IRF dimension
   irf_dim <- dim(chol_irf)
@@ -461,7 +461,7 @@ id_mixed <- function(chol_irf, sign_mat, policy_var,
                         impulse responses matching the sign restrictions.")
   # Output
   list(irf = drop(imp_arr[,(nvar-1):nvar,,1:(i-1)]), 
-       bmat = omat_arr, 
+       bmat = omat_arr[,,1:(i-1)], 
        draws_total = loop_counter - 1)
 }
 

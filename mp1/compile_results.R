@@ -1,6 +1,6 @@
 # Collect results
 library(tidyverse)
-local_data <- "/proj/juhokois/sim_news/local_data/"
+local_data <- "/home/juhokois/proj/sim_news/local_data/"
 tibble_path <- local_data %>% 
   paste0(list.files(local_data)[grepl("jobid_", list.files(local_data))], "/")
 tibble_out <- paste0(tibble_path, list.files(tibble_path)) %>%
