@@ -465,6 +465,77 @@ id_mixed <- function(chol_irf, sign_mat, policy_var,
        draws_total = loop_counter - 1)
 }
 
+id_mixed_new <- function(chol_irf, rest_mat,
+                         ndraws=1e3, max_draws = ndraws*100, 
+                         verbose=FALSE){
+  # Extract IRF dimension
+  irf_dim <- dim(chol_irf)
+  # Number of variables
+  nvar <- irf_dim[1]
+  # Initialize output to arrays: IRFs and resulting orthogonal matrices
+  imp_arr <- array(NA, c(irf_dim, ndraws))
+  omat_arr <- array(NA, c(nvar, nvar, ndraws))
+  if(verbose) cat("Estimation in progress")  
+  # Initialization
+  i <- 1
+  loop_counter <- 1
+  while(i <= ndraws && loop_counter <= max_draws){
+    # Generate random orth. matrix using QR decomp
+    qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
+    ort_mat <- qr.Q(qr_obj)
+    # Calculate structural IRFs
+    imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+    # Obtain zero restrictions
+    zr_ix <- which(rest_mat==0, arr.ind = TRUE)
+    if(length(zr_ix)!=0){
+      # Impose zero restrictions via Givens rotation
+      ort_mat <- ort_mat%*%optim_zr(imp_arr[,,1,i], zr_ix = zr_ix, opt_it = FALSE)
+      # Update IRF
+      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      # Update orth. matrix
+      omat_arr[,,i] <- ort_mat
+    }
+    # Index of components with sign restrictions
+    sign_ix <- which(rest_mat!=0)
+    # Check if sign restriction satisfied using sign reversals
+    flip_sign <- nvar %>% replicate(list(c(-1,1))) %>% expand.grid
+    # Initialize loop for sign reversals
+    j <- 1
+    rot_comp <- FALSE
+    while(!rot_comp){
+      # Sign reversal
+      ort_mat <- ort_mat%*%diag(flip_sign[j,])
+      # Update IRF
+      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      # Update orth. matrix
+      omat_arr[,,i] <- ort_mat
+      # check constraints
+      rot_ok <- min(diag(rest_mat[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
+      rot_comp <- rot_ok || j == nrow(flip_sign) 
+      j <- j+1
+    }
+
+    if(rot_ok){
+      # Increase loop index if restrictions satisfied
+      i <- i + 1
+      if(verbose){
+        # progress bar
+        grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
+        if(i%in%grid_check) cat(".")
+        if(i%in%grid_check[seq(5,20,by=5)]) cat("|")
+        if(i==grid_check[length(grid_check)]) cat("\n")
+      }
+    }
+    # Update maximum draws counter
+    loop_counter <- loop_counter+1
+  }
+  if(ndraws>=i) warning("Failed to find the requested number of 
+                        impulse responses matching the sign restrictions.")
+  # Output
+  list(irf = drop(imp_arr[,(nvar-1):nvar,,1:(i-1)]), 
+       bmat = omat_arr[,,1:(i-1)], 
+       draws_total = loop_counter - 1)
+}
 
 # RESULTS: FIGS & TBLS
 plot_irf <- function(irf_arr, var_name = NULL, shock_name = NULL, date_break = 12)

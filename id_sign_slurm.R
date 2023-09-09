@@ -14,8 +14,17 @@ args = commandArgs(trailingOnly=TRUE)
 params = list()
 
 # Parameters from Rmarkdown
-params$NEW_DIR = args[1]
+# params$NEW_DIR = args[1]
 
+# comment out--- 
+root_path <- "/proj/juhokois/sim_news/local_data/mp_id_"
+man_id <- "20230908"
+if(!dir.exists(paste0(root_path, man_id))){
+  dir.create(paste0(root_path, man_id))
+  params$NEW_DIR <- paste0(root_path, man_id)
+}
+# ---until here
+  
 THRESHOLD_SW = 0.05
 THRESHOLD_JB = 0.05
 THRESHOLD_LB = 0.05
@@ -101,19 +110,20 @@ sgn_mat[5,4,1] <- 1 # MPR
 
 map(.x = tt_tmp$chol_irf, ~ list(chol_irf = unclass(.x),
                                  sign_mat = sgn_mat,
-                                 policy_var = 4,
-                                 mp_hor = 24,
-                                 zr_ix = c(5,5),
                                  ndraws = 10,
                                  max_draws = 2e3,
                                  verbose = FALSE)) -> param_list
 
-id_obj <- lapply(param_list, function(x) do.call(id_mixed, x))
+id_obj <- lapply(param_list, function(x) do.call(id_mixed_new, x))
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
                     paste(sample(letters, 5, replace = TRUE), collapse = ""),
                     ".rds")
+tibble_out <- tt_tmp %>% 
+  dplyr::select(p, q, kappa, k, n_unst, irf, value_final, value_aic, value_bic) %>% 
+  mutate(id_obj) %>% 
+  unnest_wider(id_obj)
 
 #Create new directory from slurm and save id_objects there
-saveRDS(id_obj, file = paste0(paste0(params$NEW_DIR, tibble_id)))
+saveRDS(tibble_out, file = paste0(params$NEW_DIR, tibble_id))
