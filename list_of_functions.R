@@ -465,9 +465,11 @@ id_mixed <- function(chol_irf, sign_mat, policy_var,
        draws_total = loop_counter - 1)
 }
 
-id_mixed_new <- function(chol_irf, rest_mat,
-                         ndraws=1e3, max_draws = ndraws*100, 
-                         verbose=FALSE){
+id_mixed_new <- function(chol_irf,
+                         rest_mat,
+                         ndraws = 1e3,
+                         max_draws = ndraws*100, 
+                         verbose = FALSE){
   # Extract IRF dimension
   irf_dim <- dim(chol_irf)
   # Number of variables
@@ -477,16 +479,17 @@ id_mixed_new <- function(chol_irf, rest_mat,
   omat_arr <- array(NA, c(nvar, nvar, ndraws))
   if(verbose) cat("Estimation in progress")  
   # Initialization
+  search_complete <- FALSE
   i <- 1
-  loop_counter <- 1
-  while(i <= ndraws && loop_counter <= max_draws){
+  max_i <- 1
+  while(!search_complete){
     # Generate random orth. matrix using QR decomp
     qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
     ort_mat <- qr.Q(qr_obj)
     # Calculate structural IRFs
     imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
     # Obtain zero restrictions
-    zr_ix <- which(rest_mat==0, arr.ind = TRUE)
+    zr_ix <- which(rest_mat==0, arr.ind = TRUE)[,-3]
     if(length(zr_ix)!=0){
       # Impose zero restrictions via Givens rotation
       ort_mat <- ort_mat%*%optim_zr(imp_arr[,,1,i], zr_ix = zr_ix, opt_it = FALSE)
@@ -495,24 +498,44 @@ id_mixed_new <- function(chol_irf, rest_mat,
       # Update orth. matrix
       omat_arr[,,i] <- ort_mat
     }
-    # Index of components with sign restrictions
+    # Index of elements with only sign restrictions
     sign_ix <- which(rest_mat!=0)
-    # Check if sign restriction satisfied using sign reversals
+    # Check if sign restrictions satisfied with sign reversals
     flip_sign <- nvar %>% replicate(list(c(-1,1))) %>% expand.grid
-    # Initialize loop for sign reversals
+    # Check also allowed permutations 
+    no_zr_ix <- apply(rest_mat, 2, function(x) !(0%in%x))
+    # Creates matrix with different permutations of free columns as rows
+    perm_ix <- sum(no_zr_ix) %>% 
+      replicate(list(which(no_zr_ix))) %>% 
+      expand.grid %>% 
+      filter(apply(., 1, n_distinct)==sum(no_zr_ix)) %>% 
+      as.matrix()
+    # Initialize signed permutation loops: 
+    # outer loop indexes sign reversals, inner loop permitted column permutations
+    sign_complete <- FALSE 
+    perm_complete <- FALSE
     j <- 1
-    rot_comp <- FALSE
-    while(!rot_comp){
-      # Sign reversal
-      ort_mat <- ort_mat%*%diag(flip_sign[j,])
-      # Update IRF
-      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
-      # Update orth. matrix
-      omat_arr[,,i] <- ort_mat
-      # check constraints
-      rot_ok <- min(diag(rest_mat[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
-      rot_comp <- rot_ok || j == nrow(flip_sign) 
-      j <- j+1
+    while(!sign_complete){
+      k <- 1
+      while(!perm_complete){
+        # Permutation matrix
+        perm_mat <- diag(nvar)
+        perm_mat[,no_zr_ix] <- perm_mat[,perm_ix[k,]]
+        # Sign reversal matrix
+        sign_mat <- diag(flip_sign[j,])
+        # Sign and column reversal
+        ort_mat <- ort_mat%*%perm_mat%*%sign_mat
+        # Update IRF
+        imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+        # Update orth. matrix
+        omat_arr[,,i] <- ort_mat
+        # check constraints
+        rot_ok <- min(diag(rest_mat[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
+        perm_complete <- rot_ok || k == nrow(perm_ix)
+        k <- k + 1
+      }
+      sign_complete <- rot_ok || j == nrow(flip_sign)
+      j <- j + 1
     }
 
     if(rot_ok){
@@ -527,14 +550,18 @@ id_mixed_new <- function(chol_irf, rest_mat,
       }
     }
     # Update maximum draws counter
-    loop_counter <- loop_counter+1
+    max_i <- max_i + 1
+    # Boolean for outer loop
+    search_complete <- i > ndraws || max_i > max_draws
   }
   if(ndraws>=i) warning("Failed to find the requested number of 
                         impulse responses matching the sign restrictions.")
+
   # Output
-  list(irf = drop(imp_arr[,(nvar-1):nvar,,1:(i-1)]), 
-       bmat = omat_arr[,,1:(i-1)], 
-       draws_total = loop_counter - 1)
+  list(irf = drop(imp_arr[,,,1:(i-1)]), 
+       bmat = omat_arr[,,1:(i-1)],
+       draws_ok = i - 1,
+       draws_total = max_i - 1)
 }
 
 # RESULTS: FIGS & TBLS

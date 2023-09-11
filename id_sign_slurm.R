@@ -14,16 +14,7 @@ args = commandArgs(trailingOnly=TRUE)
 params = list()
 
 # Parameters from Rmarkdown
-# params$NEW_DIR = args[1]
-
-# comment out--- 
-root_path <- "/proj/juhokois/sim_news/local_data/mp_id_"
-man_id <- "20230908"
-if(!dir.exists(paste0(root_path, man_id))){
-  dir.create(paste0(root_path, man_id))
-  params$NEW_DIR <- paste0(root_path, man_id)
-}
-# ---until here
+params$NEW_DIR = args[1]
   
 THRESHOLD_SW = 0.05
 THRESHOLD_JB = 0.05
