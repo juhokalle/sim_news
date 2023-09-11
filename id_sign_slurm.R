@@ -92,17 +92,18 @@ tt_tmp <- tt_irf %>%
   slice_min(rk_aic) %>% 
   ungroup()
   
-rest_hor <- 1 # sign restrictions holding up to rest_hor - 1 months
+rest_hor <- 3 # sign restrictions holding up to rest_hor - 1 months
 sgn_mat <- array(matrix(NA, 5, 5), c(5, 5, rest_hor))
-sgn_mat[2,4,] <- -1 # CPI
-sgn_mat[3,4,] <- -1 # EBP
+sgn_mat[2,4:5,] <- -1 # CPI
+sgn_mat[3,4:5,] <- -1 # EBP
 sgn_mat[4,4,] <- 1 # FFR
 sgn_mat[5,4,1] <- 1 # MPR
+sgn_mat[5,5,1] <- 0
 
 map(.x = tt_tmp$chol_irf, ~ list(chol_irf = unclass(.x),
                                  sign_mat = sgn_mat,
                                  ndraws = 10,
-                                 max_draws = 2e3,
+                                 max_draws = 1e4,
                                  verbose = FALSE)) -> param_list
 
 id_obj <- lapply(param_list, function(x) do.call(id_mixed_new, x))
@@ -113,8 +114,7 @@ tibble_id <- paste0("/tibble_",
                     ".rds")
 tibble_out <- tt_tmp %>% 
   dplyr::select(p, q, kappa, k, n_unst, irf, value_final, value_aic, value_bic) %>% 
-  mutate(id_obj) %>% 
-  unnest_wider(id_obj)
+  mutate(id_obj)
 
 #Create new directory from slurm and save id_objects there
 saveRDS(tibble_out, file = paste0(params$NEW_DIR, tibble_id))
