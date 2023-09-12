@@ -9,6 +9,10 @@
 #SBATCH -e rre%a.err
 #SBATCH --array=1
 
+ROOT_PATH="tt_empex_"
+MANUALLY_ASSIGNED_ID=20230912
+FILE_NAME="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
+
 module load R/4.2.1
 
-srun Rscript compile_results.R
+srun Rscript compile_results.R $FILE_NAME

@@ -56,7 +56,7 @@ fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>%
 data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1", "MP_median"),
                  ~ fred_md %>%
                    filter(date>=ym(199401), date<=ym(201912)) %>%
-                   dplyr::select(LIP, LCPI, EBP, WX, all_of(.x)) %>%
+                   dplyr::select(LIP, LCPI, WX, all_of(.x)) %>%
                    filter(complete.cases(.))
                  )
 names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22", "JK21")

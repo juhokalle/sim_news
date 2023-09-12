@@ -3,8 +3,8 @@
 # ----------------------------- #
 
 # PREAMBLE ####
-source("/proj/juhokois/sim_news/list_of_functions.R")
-.libPaths(c("/proj/juhokois/R/", .libPaths()))
+source("/home/juhokois/proj/sim_news/list_of_functions.R")
+.libPaths(c("/home/juhokois/proj/R/", .libPaths()))
 pkgs <- c("svarmawhf", "fitdistrplus", "sgt", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
 
@@ -57,7 +57,7 @@ params$MAXIT_BFGS_SGT = 200 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
 
-params$FILE_NAME_INPUT = "/proj/juhokois/sim_news/local_data/svarma_data_list.rds"
+params$FILE_NAME_INPUT = "/home/juhokois/proj/sim_news/local_data/svarma_data_list.rds"
 params$USE_PARALLEL = FALSE
 
 # Data and derived PARAMETERS ####

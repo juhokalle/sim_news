@@ -11,8 +11,8 @@
 #SBATCH -e rre%a.err
 #SBATCH --array=1-405
 
-ROOT_PATH="/proj/juhokois/sim_news/local_data/jobid_"
-MANUALLY_ASSIGNED_ID=20230905
+ROOT_PATH="/home/juhokois/proj/sim_news/local_data/jobid_"
+MANUALLY_ASSIGNED_ID=20230912
 NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 
 mkdir -p $NEW_DIR
