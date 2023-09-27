@@ -257,6 +257,20 @@ optim_zr <- function(input_mat, zr_ix, opt_it = TRUE)
   }
 }
 
+zero_rest <- function(target_mat, zero_ix){
+  
+  rot_angle <- ifelse(zero_ix[2]==1, 
+                      -target_mat[zero_ix[1], zero_ix[2]+1],
+                      target_mat[zero_ix[1], zero_ix[2]-1])
+  rot_angle <- atan(target_mat[zero_ix[1], zero_ix[2]]/rot_angle)
+  sub_mat <- c(cos(rot_angle), sin(rot_angle), -sin(rot_angle), cos(rot_angle))
+  rot_mat <- diag(1, dim(target_mat)[2])
+  tmp_ix <- ifelse(zero_ix[2]==1, zero_ix[2], zero_ix[2]-1)
+  rot_mat[tmp_ix:(tmp_ix+1), tmp_ix:(tmp_ix+1)] <- sub_mat
+  rot_mat
+}
+
+
 get_fevd <- function (irf_arr, int_var = NULL, by_arg = NULL)
 {
   irf_arr <- unclass(irf_arr)
@@ -383,92 +397,13 @@ id_sign <- function(chol_irf, ndraws=1e3, sign_rest, max_draws=1e5){
   }
 }
 
-id_mixed <- function(chol_irf, sign_mat, policy_var, 
-                     mp_hor=24, zr_ix = NULL,
-                     ndraws=1e3, max_draws = ndraws*100, 
-                     verbose=FALSE){
-  # Extract IRF dimension
-  irf_dim <- dim(chol_irf)
-  # Number of variables
-  nvar <- irf_dim[1]
-  # Initialize output to arrays: IRFs and resulting orthogonal matrices
-  imp_arr <- array(NA, c(irf_dim, ndraws))
-  omat_arr <- array(NA, c(nvar, nvar, ndraws))
-  if(verbose) cat("Estimation in progress")  
-  # Initialization
-  i <- 1
-  loop_counter <- 1
-  while(i <= ndraws && loop_counter <= max_draws){
-    # Generate random orth. matrix using QR decomp
-    qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
-    qr_q <- qr.Q(qr_obj)
-    qr_r <- qr.R(qr_obj)
-    # Normalize signs of columns, according to Kilian Lutkepohl ch. 13
-    ort_mat <- qr_q%*%diag(sign(diag(qr_r)))
-    # Calculate Cholesky IRFs
-    imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
-    # Obtain FEVD determining the MP and FG shocks and their mutual ordering
-    mp_ix <- id_policy_shox(imp_arr[,,1:(mp_hor+1),i], 
-                            policy_var = policy_var,
-                            n_shox = 2)
-    mp_ix <- mp_ix[order(abs(imp_arr[policy_var,mp_ix,1,i]), decreasing = TRUE)]
-    # Update orthogonal matrix
-    ort_mat <- ort_mat%*%diag(nvar)[,c((1:nvar)[-mp_ix], mp_ix)]
-    # Update IRF
-    imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
-    if(!is.null(zr_ix)){
-      # Impose zero restrictions via Givens rotation
-      ort_mat <- ort_mat%*%optim_zr(imp_arr[,,1,i], zr_ix = zr_ix, opt_it = FALSE)
-      # Update IRF
-      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
-      # Update orth. matrix
-      omat_arr[,,i] <- ort_mat
-    }
-    # Index for columns containing sign restrictions
-    rest_ix <- apply(sign_mat, 2, function(x) any(is.finite(x)))
-    # Initialization for sign flipping loop
-    j <- 1
-    rot_complete <- FALSE
-    while(!rot_complete){
-      # Flip signs
-      flip_sign <- get_sign_mat(which(rest_ix), nvar)
-      # Update update update
-      ort_mat <- ort_mat%*%flip_sign[[j]]
-      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
-      omat_arr[,,i] <- ort_mat
-      # Check sign restrictions
-      sign_ix <- which(is.finite(sign_mat))
-      rot_ok <- min(diag(sign_mat[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
-      rot_complete <- rot_ok || j <= 2^length(rest_ix)
-      j <- j + 1
-    }
-
-    if(rot_ok){
-      # Increase loop index if signs match
-      i <- i + 1
-      if(verbose){
-        # progress bar
-        grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
-        if(i%in%grid_check) cat(".")
-        if(i%in%grid_check[seq(5,20,by=5)]) cat("|")
-        if(i==grid_check[length(grid_check)]) cat("\n")
-      }
-    }
-    # Update maximum draws counter
-    loop_counter <- loop_counter+1
-  }
-  if(ndraws>=i) warning("Failed to find the requested number of 
-                        impulse responses matching the sign restrictions.")
-  # Output
-  list(irf = drop(imp_arr[,(nvar-1):nvar,,1:(i-1)]), 
-       bmat = omat_arr[,,1:(i-1)], 
-       draws_total = loop_counter - 1)
-}
-
-id_mixed_new <- function(chol_irf,
+id_mixed_old <- function(chol_irf,
                          rest_mat,
+                         news_rest = NULL,
                          ndraws = 1e3,
-                         max_draws = ndraws*100, 
+                         max_draws = ndraws*100,
+                         irf_cb = c(0.14, 0.86),
+                         replace_md = TRUE,
                          verbose = FALSE){
   # Extract IRF dimension
   irf_dim <- dim(chol_irf)
@@ -477,64 +412,56 @@ id_mixed_new <- function(chol_irf,
   # Initialize output to arrays: IRFs and resulting orthogonal matrices
   imp_arr <- array(NA, c(irf_dim, ndraws))
   omat_arr <- array(NA, c(nvar, nvar, ndraws))
-  if(verbose) cat("Estimation in progress")  
   # Initialization
   search_complete <- FALSE
   i <- 1
   max_i <- 1
+  # Print progress bar
+  if(verbose) cat("Search in progress")  
   while(!search_complete){
     # Generate random orth. matrix using QR decomp
     qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
-    ort_mat <- qr.Q(qr_obj)
+    qr_q <- qr.Q(qr_obj)
+    qr_r <- qr.R(qr_obj)
+    ort_mat <- qr_q%*%diag(sign(diag(qr_r)))
     # Calculate structural IRFs
-    imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+    imp_arr[, , , i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
     # Obtain zero restrictions
-    zr_ix <- which(rest_mat==0, arr.ind = TRUE)[,-3]
+    zr_ix <- which(rest_mat==0, arr.ind = TRUE)[,1:2]
     if(length(zr_ix)!=0){
       # Impose zero restrictions via Givens rotation
-      ort_mat <- ort_mat%*%optim_zr(imp_arr[,,1,i], zr_ix = zr_ix, opt_it = FALSE)
-      # Update IRF
-      imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
-      # Update orth. matrix
-      omat_arr[,,i] <- ort_mat
+      ort_mat <- ort_mat%*%zero_rest(imp_arr[, , 1, i], zr_ix)
+      # Update IRF output
+      imp_arr[, , , i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      # Update orth. matrix output
+      omat_arr[, , i] <- ort_mat
     }
-    # Index of elements with only sign restrictions
+    # Index of elements with only sign restrictions, i.e. length of the tested prms
     sign_ix <- which(rest_mat!=0)
-    # Check if sign restrictions satisfied with sign reversals
-    flip_sign <- nvar %>% replicate(list(c(-1,1))) %>% expand.grid
-    # Check also allowed permutations 
-    no_zr_ix <- apply(rest_mat, 2, function(x) !(0%in%x))
-    # Creates matrix with different permutations of free columns as rows
-    perm_ix <- sum(no_zr_ix) %>% 
-      replicate(list(which(no_zr_ix))) %>% 
-      expand.grid %>% 
-      filter(apply(., 1, n_distinct)==sum(no_zr_ix)) %>% 
-      as.matrix()
-    # Initialize signed permutation loops: 
-    # outer loop indexes sign reversals, inner loop permitted column permutations
-    sign_complete <- FALSE 
-    perm_complete <- FALSE
+    # Index of allowed column permutations 
+    no_zr_ix <- apply(rest_mat, 2, function(x) !(0 %in% x))
+    perm_sign_list <- get_perm_sign_mat(nvar, which(no_zr_ix))
+    # Initialize signed column permutation search loop: 
+    perm_sign_complete <- FALSE 
     j <- 1
-    while(!sign_complete){
-      k <- 1
-      while(!perm_complete){
-        # Permutation matrix
-        perm_mat <- diag(nvar)
-        perm_mat[,no_zr_ix] <- perm_mat[,perm_ix[k,]]
-        # Sign reversal matrix
-        sign_mat <- diag(flip_sign[j,])
-        # Sign and column reversal
-        ort_mat <- ort_mat%*%perm_mat%*%sign_mat
-        # Update IRF
-        imp_arr[,,,i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
-        # Update orth. matrix
-        omat_arr[,,i] <- ort_mat
-        # check constraints
-        rot_ok <- min(diag(rest_mat[sign_ix])%*%imp_arr[,,,i][sign_ix])>0
-        perm_complete <- rot_ok || k == nrow(perm_ix)
-        k <- k + 1
+    while(!perm_sign_complete){
+      # Sign and column reversal
+      ort_mat <- ort_mat%*%perm_sign_list[[j]]
+      # Update IRF output
+      imp_arr[, , , i] <- apply(chol_irf, 3, function(x) x%*%ort_mat)
+      # Update orth. matrix output
+      omat_arr[, , i] <- ort_mat
+      # check constraints
+      rot_ok <- min(diag(rest_mat[sign_ix])%*%imp_arr[, , , i][sign_ix])>0
+      if(rot_ok && !is.null(news_rest)){
+        # checks whether the sign restriction wrt news shock is satisfied 
+        sign_news <- news_rest[[1]] # save sign response to a news shock
+        # Extract the impulse responses of target variable to news shock
+        news_resp <- imp_arr[news_rest[[2]][1], news_rest[[2]][2], ,i]
+        # Check response to news shock 
+        rot_ok <- rot_ok && sign(news_resp[which.max(abs(news_resp))]) == sign_news
       }
-      sign_complete <- rot_ok || j == nrow(flip_sign)
+      perm_sign_complete <- rot_ok || j == length(perm_sign_list)
       j <- j + 1
     }
 
@@ -544,9 +471,9 @@ id_mixed_new <- function(chol_irf,
       if(verbose){
         # progress bar
         grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
-        if(i%in%grid_check) cat(".")
-        if(i%in%grid_check[seq(5,20,by=5)]) cat("|")
-        if(i==grid_check[length(grid_check)]) cat("\n")
+        if(i %in% grid_check) cat(".")
+        if(i %in% grid_check[seq(5, 20, by=5)]) cat(paste0(100*i/ndraws, "%"))
+        if(i == grid_check[length(grid_check)]) cat("\n")
       }
     }
     # Update maximum draws counter
@@ -554,15 +481,184 @@ id_mixed_new <- function(chol_irf,
     # Boolean for outer loop
     search_complete <- i > ndraws || max_i > max_draws
   }
-  if(ndraws>=i) warning("Failed to find the requested number of 
-                        impulse responses matching the sign restrictions.")
-
-  # Output
-  list(irf = drop(imp_arr[,,,1:(i-1)]), 
-       bmat = omat_arr[,,1:(i-1)],
-       draws_ok = i - 1,
-       draws_total = max_i - 1)
+  if(ndraws >= i) warning("Failed to find the requested number of 
+                          impulse responses matching the sign restrictions.")
+  if(i==1){
+    list_out <- "No rotations found."
+  } else{
+    # Collect output, note that 'i - 1' returns the true number of draws 
+    # matching the restrictions
+    list_out <- list(irf = drop(imp_arr[, , , 1:(i - 1)]), 
+                     bmat = omat_arr[, , 1:(i - 1)],
+                     draws_ok = i - 1,
+                     draws_total = max_i - 1) 
+    # Append the output list with confidence bands if applicable
+    if(!is.null(irf_cb)){
+      list_out$irf_qt <- apply(X = imp_arr, 
+                               MARGIN = c(1, 2, 3), 
+                               FUN = quantile, 
+                               probs = c(irf_cb[1], 0.5, irf_cb[2]),
+                               na.rm = TRUE,
+                               ) %>% 
+        aperm(c(2, 3, 4, 1))
+      if(replace_md) list_out$irf_qt[,,,2] <- fry_pagan_mt(list_out$irf)
+    }
+  }
+  list_out
 }
+
+id_mixed_new <- function(chol_irf,
+                         rest_mat,
+                         news_rest = NULL,
+                         ndraws = 1e3,
+                         max_draws = ndraws*100,
+                         irf_cb = c(0.14, 0.86),
+                         replace_md = TRUE,
+                         verbose = FALSE){
+  # Extract IRF dimension
+  irf_dim <- dim(chol_irf)
+  # Number of variables
+  nvar <- irf_dim[1]
+  # Initialize output to arrays: IRFs and resulting orthogonal matrices
+  imp_arr <- array(NA, c(irf_dim, ndraws))
+  omat_arr <- array(NA, c(nvar, nvar, ndraws))
+  
+  # Subsetting index of elements with only sign restrictions, i.e. length of the tested prms
+  sign_ix <- which(rest_mat!=0)
+  
+  # Index of allowed column permutations 
+  no_zr_ix <- apply(rest_mat, 2, function(x) !(0 %in% x))
+  perm_sign_arr <- get_perm_sign_mat(nvar, which(no_zr_ix)) %>% 
+    abind::abind(along = 3)
+
+  # Obtain zero restrictions
+  zr_ix <- which(rest_mat==0, arr.ind = TRUE)[,1:2]
+
+  # Initialization
+  search_complete <- FALSE
+  i <- 1
+  max_i <- 1
+  
+  # Print progress bar
+  if(verbose) cat("Search in progress")  
+  while(!search_complete){
+    # Generate random orth. matrix using QR decomp
+    qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
+    qr_q <- qr.Q(qr_obj)
+    qr_r <- qr.R(qr_obj)
+    # Ensure uniqueness
+    ort_mat <- qr_q%*%diag(sign(diag(qr_r)))
+    
+    # Multiply by Givens matrix if zero restricitons imposed
+    if(length(zr_ix)!=0) ort_mat <- ort_mat%*%zero_rest(chol_irf[, , 1]%*%ort_mat, zr_ix)
+    
+    # Collect arguments for cpp function
+    arg_list <- list(chol_irf = chol_irf, 
+                     ort_mat = ort_mat, 
+                     rest_arr = rest_mat, 
+                     sign_ix = sign_ix, 
+                     perm_sign_arr = perm_sign_arr,
+                     news_info = if(is.null(news_rest)) rep(0, 3) else news_rest)
+    search_rotations <- do.call(search_rotations_cpp, arg_list)
+    
+    if(search_rotations$success){
+      # Save results 
+      omat_arr[, , i] <- search_rotations$omat
+      imp_arr[, , , i] <- search_rotations$irf_tmp
+      # Increase loop index if restrictions satisfied
+      i <- i + 1
+      if(verbose){
+        # progress bar
+        grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
+        if(i %in% grid_check) cat(".")
+        if(i %in% grid_check[seq(5, 20, by=5)]) cat(paste0(100*i/ndraws, "%"))
+        if(i == grid_check[length(grid_check)]) cat("\n")
+      }
+    }
+    # Update maximum draws counter
+    max_i <- max_i + 1
+    # Boolean for outer loop
+    search_complete <- i > ndraws || max_i > max_draws
+  }
+  if(ndraws >= i) warning("Failed to find the requested number of 
+                          impulse responses matching the sign restrictions.")
+  if(i==1){
+    list_out <- "No rotations found."
+  } else{
+    # Collect output, note that 'i - 1' returns the true number of draws 
+    # matching the restrictions
+    list_out <- list(irf = drop(imp_arr[, , , 1:(i - 1)]), 
+                     bmat = omat_arr[, , 1:(i - 1)],
+                     draws_ok = i - 1,
+                     draws_total = max_i - 1) 
+    # Append the output list with confidence bands if applicable
+    if(!is.null(irf_cb)){
+      list_out$irf_qt <- apply(X = imp_arr, 
+                               MARGIN = c(1, 2, 3), 
+                               FUN = quantile, 
+                               probs = c(irf_cb[1], 0.5, irf_cb[2]),
+                               na.rm = TRUE
+                               ) %>% 
+        aperm(c(2, 3, 4, 1))
+      if(replace_md) list_out$irf_qt[,,,2] <- fry_pagan_mt(list_out$irf)
+    }
+  }
+  list_out
+}
+
+Rcpp::cppFunction(depends = "RcppArmadillo",
+  'List search_rotations_cpp(
+  const arma::cube& chol_irf,
+  const arma::mat& ort_mat,
+  const arma::cube& rest_arr, 
+  const arma::uvec& sign_ix,
+  const arma::cube& perm_sign_arr, 
+  const arma::uvec& news_info) {
+  
+  // preallocation
+  arma::cube irf_temp(size(chol_irf));
+  arma::mat ort_temp(size(ort_mat)), dg_rest(sign_ix.n_elem, sign_ix.n_elem);
+  arma::colvec irf_vec(chol_irf.n_elem), irf_vec_sub(sign_ix.n_elem);
+  arma::colvec news_resp(chol_irf.n_slices), abs_news_resp(chol_irf.n_slices);
+  double news_rest = news_info[0], row_ix = news_info[1]-1, col_ix = news_info[2]-1;
+  
+  // subset restrictions and place them on main diagonal of diagonal matrix
+  arma::colvec rest_vec = arma::vectorise(rest_arr);
+  dg_rest.diag(0) = rest_vec.elem(sign_ix-1);
+
+  // initialization
+  bool rot_ok = false, perm_sign_complete = false;
+  int i = 0;
+  
+  while(!perm_sign_complete){
+  	// calculate rotated IRFs
+  	ort_temp = ort_mat*perm_sign_arr.slice(i);
+  	for(int j = 0; j < chol_irf.n_slices; j++){
+  		irf_temp.slice(j) = chol_irf.slice(j)*ort_temp;
+  	}
+  	// vectorize restrictions and irf array
+  	irf_vec = arma::vectorise(irf_temp);
+  	// subset restricted elements into column vector
+  	irf_vec_sub = irf_vec.elem(sign_ix-1);
+  	// check restrictions
+  	rot_ok = min(dg_rest*irf_vec_sub) > 0;
+  	
+  	// news restriction
+  	if(sum(news_info)!=0 && rot_ok){
+      news_resp = irf_temp.subcube(arma::span(row_ix), arma::span(col_ix), arma::span());
+  		abs_news_resp = abs(news_resp);
+  		double max_ix = abs_news_resp.index_max();
+  		rot_ok = as_scalar(news_resp.row(max_ix)*news_rest) > 0;
+  	 }
+  	
+  	// check if the search for signed rotation is complete or continues
+  	perm_sign_complete = rot_ok || i == perm_sign_arr.n_slices-1;
+  	i++;
+  }
+
+  return List::create(Named("success") = rot_ok, Rcpp::Named("omat") = ort_temp, Rcpp::Named("irf_tmp") = irf_temp);
+  }'
+)
 
 # RESULTS: FIGS & TBLS
 plot_irf <- function(irf_arr, var_name = NULL, shock_name = NULL, date_break = 12)
@@ -1036,21 +1132,60 @@ get_res_app1 <- function(res_tbl)
   )
 }
 
-get_sign_mat <- function(col_ix, nvar){
-  if(length(col_ix) == 0){
-    flip_sign <- list(diag(nvar))
-  } else if(length(col_ix) == 1){
-    tmp_mat <- diag(nvar)
-    tmp_mat[col_ix, col_ix] <- -1
-    flip_sign <- list(tmp_mat%*%tmp_mat, tmp_mat)
-  } else{
-    flip_sign <- length(col_ix) %>% 
-      replicate(list(c(-1,1))) %>% 
-      expand.grid %>% 
-      t %>% 
-      data.frame %>% 
-      as.list %>% 
-      lapply(function(x) diag(c(rep(1,nvar-2), x)))
-    }
-  flip_sign
+get_perm_sign_mat <- function(nvar, free_cols = 1:nvar){
+  
+  # Create a list of size 2^nvar containing all distinct matrices with 
+  # 1 and -1 on the diagonal 
+  sign_mat_list <- nvar %>% 
+    replicate(list(c(1,-1))) %>% 
+    expand.grid %>% 
+    apply(1, function(x) diag(x), simplify = FALSE)
+  
+  # Helper matrix
+  perm_col_mat <- matrix(1:nvar, nvar, factorial(length(free_cols)))
+  
+  # Create all permutations of the free columns, where free column
+  # refers to absence of zero restrictions
+  perm_free_col <- length(free_cols) %>% 
+    replicate(list(free_cols)) %>% 
+    expand.grid %>% 
+    filter(apply(., 1, n_distinct)==length(free_cols)) %>% 
+    t
+
+  # Replace the non-fixed columns with permutations 
+  # into columns of the helper matrix 
+  perm_col_mat[(1:nvar)%in%free_cols, ] <- perm_free_col
+  
+  # Create all allowed permutation matrices 
+  perm_mat_list <- apply(X = perm_col_mat, 
+                         MARGIN = 2, 
+                         FUN = function(x) diag(nvar)[,x], 
+                         simplify = FALSE)
+  
+  # Create all allowed signed permutation matrices into a list of size (2^n*free_cols!)
+  lapply(sign_mat_list, function(x) lapply(perm_mat_list, function(y) x%*%y)) %>% 
+    unlist(recursive=FALSE)
 }
+
+
+fry_pagan_mt <- function(irf_arr, rest_mat = NULL, ct_hor = dim(irf_arr)[3], qt = 0.5){
+
+  # Check if the median target is calculated only wrt to the restricted shocks
+  if(is.null(rest_mat)){
+    tgt_shocks <- 1:dim(irf_arr)[2] 
+  } else {
+    tgt_shocks <- which(apply(rest_mat, 2, function(x) any(is.finite(x))))
+  }
+  # Calculate the median scaled by respective standard deviation across draws
+  scaled_irf_qt <- apply(X = irf_arr[, tgt_shocks, 1:ct_hor, , drop=FALSE], 
+                         MARGIN = c(1, 2, 3), 
+                         FUN = function(x) quantile(x, qt, na.rm=TRUE)/sd(x, na.rm = TRUE))
+  # Subtract the scaled median from every draw, square this gap, and calculate the 
+  # squared sum of these gaps for every draw
+  sq_sum_error <- apply(X = irf_arr[, tgt_shocks, 1:ct_hor, , drop = FALSE], 
+                        MARGIN = 4, 
+                        FUN = function(x) sum((x - scaled_irf_qt)^2, na.rm=TRUE))
+  # Return the draw which minimizes the quadratic loss function
+  irf_arr[, , , which.min(sq_sum_error)]
+}
+

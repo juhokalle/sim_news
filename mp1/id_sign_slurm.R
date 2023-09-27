@@ -6,6 +6,7 @@
 # -------------------------------------------------------------- #
 
 source("/home/juhokois/proj/sim_news/list_of_functions.R")
+.libPaths(c("/home/juhokois/proj/R/", .libPaths()))
 pkgs <- c("svarmawhf", "tidyverse")
 void = lapply(pkgs, function(x) suppressMessages(library(x, character.only = TRUE)))
 
@@ -101,7 +102,8 @@ sgn_mat[4,3,1] <- 1 # MP -> MPR
 sgn_mat[4,4,1] <- 0
 
 map(.x = tt_tmp$chol_irf, ~ list(chol_irf = unclass(.x),
-                                 sign_mat = sgn_mat,
+                                 rest_mat = sgn_mat,
+                                 news_rest = list(1, c(3,4)),
                                  ndraws = 10,
                                  max_draws = 1e4,
                                  verbose = FALSE)) -> param_list

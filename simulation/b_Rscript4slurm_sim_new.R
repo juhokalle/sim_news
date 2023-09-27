@@ -36,8 +36,8 @@ params$penalty_prm = 100
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
-params$USE_BFGS_GAUSS = TRUE
-params$USE_NM_GAUSS = TRUE
+params$USE_BFGS_GAUSS = FALSE
+params$USE_NM_GAUSS = FALSE
 params$USE_CS_GAUSS = FALSE
 params$MAXIT_BFGS_GAUSS = 200
 params$MAXIT_NM_GAUSS = 3000
@@ -127,18 +127,22 @@ tibble_out =
   slice_min(value_final) %>%
   ungroup() %>%
   mutate(res = pmap(., pmap_get_residuals_once)) %>%
-  mutate(B_mat = map2(.x = params_deep_final, 
-                      .y = tmpl,
-                      ~fill_tmpl_whf_rev(theta = .x,
-                                         tmpl = .y)$B
-                      )
-         ) %>%
+  mutate(cov_u = map(.x = res, ~ crossprod(.x)/nrow(.x))) %>%
+  mutate(B_mat = map(.x = cov_u, with(eigen(.x), vectors%*%diag(sqrt(values))%*%solve(vectors)))) %>% 
+  mutate(armamod = map(.x = theta, .y = tmpl, ~armamod_whf(.x, .y))) %>% 
+  mutate(irf = map2(.x = armamod, .y = B_mat, ~pseries(lmfd(.x$polm_ar, .x$polm_ma), 8)%r%.y)) %>% 
+  # mutate(B_mat = map2(.x = params_deep_final, 
+  #                     .y = tmpl,
+  #                     ~fill_tmpl_whf_rev(theta = .x,
+  #                                        tmpl = .y)$B
+  #                     )
+  #        ) %>%
   # mutate(shocks = map2(res, B_mat, ~ solve(.y, t(.x)) %>% t())) %>%
-  mutate(irf = map2(.x = params_deep_final, 
-                    .y = tmpl, 
-                    ~ irf_whf(.x, .y, n_lags = 8)
-                    )
-         ) %>% 
+  # mutate(irf = map2(.x = params_deep_final, 
+  #                   .y = tmpl, 
+  #                   ~ irf_whf(.x, .y, n_lags = 8)
+  #                   )
+  #        ) %>% 
   # mutate(irf = map2(.x = sd_vec, 
   #                   .y = irf, 
   #                   ~ diag(.x)%r%.y
@@ -152,22 +156,22 @@ tibble_out =
                               )
                         )
          ) %>% 
-  mutate(rmat = map2(.x = true_irf, 
-                     .y = irf, 
-                     ~ choose_perm_sign(target_mat = .x,
-                                        cand_mat = .y,
-                                        type = "min_rmse")
-                     )
-         ) %>% 
+  # mutate(rmat = map2(.x = true_irf, 
+  #                    .y = irf, 
+  #                    ~ choose_perm_sign(target_mat = .x,
+  #                                       cand_mat = .y,
+  #                                       type = "min_rmse")
+  #                    )
+  #        ) %>% 
   # mutate(rmat = map(.x = irf, ~ id_news_shox(irf_arr = .x, policy_var = 1))) %>%
   # mutate(rmat = map2(.x = irf, .y = rmat, ~ .y%*%optim_zr(input_mat = unclass(.x)[,,1]%*%.y,
   #                                                         zr_ix = c(1,2),
   #                                                         opt_it = FALSE))) %>%
-  mutate(irf = map2(.x = irf,
-                    .y = rmat,
-                    ~ .x%r%.y
-                    )
-         ) %>%
+  # mutate(irf = map2(.x = irf,
+  #                   .y = rmat,
+  #                   ~ .x%r%.y
+  #                   )
+  #        ) %>%
   # mutate(res = pmap(., pmap_get_residuals_once)) %>% 
   # mutate(B_mat = map2(.x = params_deep_final, 
   #                     .y = tmpl, 
@@ -181,7 +185,7 @@ tibble_out =
   #                      )
   #        ) %>% 
   # mutate(Sigma = map(.x = shocks, ~ cov(.x)))
-  dplyr::select(p, q, kappa, k, beta, nu, value_final, irf, params_deep_final, tmpl)
+  dplyr::select(p, q, kappa, k, beta, nu, value_final, irf, true_irf, params_deep_final, tmpl)
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 
