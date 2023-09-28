@@ -124,7 +124,7 @@ map(.x = tt_irf$chol_irf, ~ list(chol_irf = unclass(.x),
     ) -> param_list
 
 par_fun <- function(param_list){
-  source("list_of_functions.R")
+  # source("list_of_functions.R")
   do.call(id_mixed_new, param_list)
 }
 param_list <- param_list[[5]]

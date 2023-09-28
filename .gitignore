@@ -2,3 +2,5 @@
 .Rhistory
 .RData
 .Ruserdata
+paper_output
+perm_sign.cpp

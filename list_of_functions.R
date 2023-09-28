@@ -85,32 +85,6 @@ mixed_marg_dists <- function(dim_out, nu)
   function(x) c(replicate(x/dim_out, c(rnorm(2), sqrt(1-2/nu)*stats::rt(dim_out-2, nu))))
 }
 
-get_simu_model <- function(mod_tmpl, imp_mat)
-{
-  root_flag <- TRUE
-  scl_prm <- 1
-  n_unst <- k_kappa2nunst(q = mod_tmpl$input_orders$MAorder,
-                          dim_out = mod_tmpl$input_orders$dim_out,
-                          k = mod_tmpl$input_orders$k,
-                          kappa = mod_tmpl$input_orders$kappa)
-  
-  while(root_flag && scl_prm > 0){
-    mod_prms <- rnorm(mod_tmpl$n_par, mean = 0, sd = scl_prm)
-    arma_whf <- fill_tmpl_whf_rev(mod_prms, mod_tmpl)
-    arma_std <- armamod_whf(mod_prms, mod_tmpl)
-    Bmat <- diag(diag(imp_mat))
-    ma_polm <- arma_std$polm_ma%r%(solve(unclass(arma_std$polm_ma)[,,1])%*%imp_mat%*%solve(Bmat))
-    # Check root constraints
-    ar_flag <- any(abs(eigen(companion_matrix(arma_whf$polm_ar))$val) > 1)
-    ma_bwd_flag <- any(abs(eigen(companion_matrix(arma_whf$polm_ma_bwd))$val) > 1)
-    ma_fwd_flag <- any(abs(eigen(companion_matrix(arma_whf$polm_ma_fwd))$val) > 1)
-    ma_flag <- !(sum(abs(eigen(companion_matrix(ma_polm))$val)>1)==n_unst)
-    root_flag <- ar_flag || ma_bwd_flag || ma_fwd_flag || ma_flag
-    scl_prm <- scl_prm-.05
-  }
-  armamod(lmfd(arma_std$polm_ar, ma_polm), Bmat)
-}
-
 # BOOTSTRAP
 mb_boot <- function(y, prms, tmpl, b.length=10, nboot=500)
 {
@@ -145,24 +119,6 @@ mb_boot <- function(y, prms, tmpl, b.length=10, nboot=500)
   }
   ystar <- lapply(errors, function(x) solve_de(lmfd(armamod$polm_ar, armamod$polm_ma), x)$y)
   return(ystar)
-}
-
-# SHOCK ID & LABELLING
-get_llf <- function(p, q, kappa, k, dtype, sd)
-{
-  total_data <- readRDS("local_data/total_data.rds")
-  data_i <- total_data %>% 
-    filter(mp_type==dtype) %>% 
-    pull(data_list) %>% .[[1]]
-  dim_out <- dim(data_i)[2]
-  tmpl_i <- tmpl_whf_rev(dim_out = dim_out,
-                         ARorder = p,
-                         MAorder = q,
-                         kappa = kappa,
-                         k = k,
-                         shock_distr = "sgt")
-  ll_whf_factory(data_wide = t(data_i), tmpl = tmpl_i, shock_distr = sd)
-  
 }
 
 id_news_shox <- function(irf_arr, policy_var)
@@ -522,17 +478,27 @@ id_mixed_new <- function(chol_irf,
   # Initialize output to arrays: IRFs and resulting orthogonal matrices
   imp_arr <- array(NA, c(irf_dim, ndraws))
   omat_arr <- array(NA, c(nvar, nvar, ndraws))
+  # Signed permutation matrices
+  perm_sign_rd1 <- get_perm_sign_mat(nvar) %>% abind::abind(along = 3)
   
   # Subsetting index of elements with only sign restrictions, i.e. length of the tested prms
   sign_ix <- which(rest_mat!=0)
   
   # Index of allowed column permutations 
   no_zr_ix <- apply(rest_mat, 2, function(x) !(0 %in% x))
-  perm_sign_arr <- get_perm_sign_mat(nvar, which(no_zr_ix)) %>% 
-    abind::abind(along = 3)
-
   # Obtain zero restrictions
   zr_ix <- which(rest_mat==0, arr.ind = TRUE)[,1:2]
+  
+  # For checking sign reversals in the two columns multiplied by the Givens mat
+  if(length(zr_ix)!=0){
+    tmp_ix <- ifelse(zr_ix[2]==1, zr_ix[2], zr_ix[2]-1)
+    perm_sign_rd2 <- lapply(get_perm_sign_mat(nvar, tmp_ix), 
+                            function(x) lapply(get_perm_sign_mat(nvar, tmp_ix+1),
+                                               function(y) x%*%y) 
+                            ) %>% 
+      unlist(recursive = FALSE) %>% 
+      abind::abind(along = 3)
+  }
 
   # Initialization
   search_complete <- FALSE
@@ -548,23 +514,27 @@ id_mixed_new <- function(chol_irf,
     qr_r <- qr.R(qr_obj)
     # Ensure uniqueness
     ort_mat <- qr_q%*%diag(sign(diag(qr_r)))
-    
-    # Multiply by Givens matrix if zero restricitons imposed
-    if(length(zr_ix)!=0) ort_mat <- ort_mat%*%zero_rest(chol_irf[, , 1]%*%ort_mat, zr_ix)
-    
     # Collect arguments for cpp function
     arg_list <- list(chol_irf = chol_irf, 
                      ort_mat = ort_mat, 
                      rest_arr = rest_mat, 
                      sign_ix = sign_ix, 
-                     perm_sign_arr = perm_sign_arr,
-                     news_info = if(is.null(news_rest)) rep(0, 3) else news_rest)
-    search_rotations <- do.call(search_rotations_cpp, arg_list)
+                     perm_sign_arr = perm_sign_rd1,
+                     news_info = if(length(zr_ix)!=0 || is.null(news_rest)) c(0,0,0) else news_rest)
+    rot_out <- do.call(search_rotations_cpp, arg_list)
     
-    if(search_rotations$success){
+    # Multiply by Givens matrix if zero restrictions imposed
+    if(length(zr_ix)!=0){
+      arg_list$ort_mat <- rot_out$omat%*%zero_rest(rot_out$irf_tmp[,,1], zr_ix)
+      arg_list$perm_sign_arr <- perm_sign_rd2
+      if(!is.null(news_rest)) arg_list$news_info <- news_rest
+      rot_out <- do.call(search_rotations_cpp, arg_list)
+    }
+
+    if(rot_out$success){
       # Save results 
-      omat_arr[, , i] <- search_rotations$omat
-      imp_arr[, , , i] <- search_rotations$irf_tmp
+      omat_arr[, , i] <- rot_out$omat
+      imp_arr[, , , i] <- rot_out$irf_tmp
       # Increase loop index if restrictions satisfied
       i <- i + 1
       if(verbose){
@@ -1140,6 +1110,19 @@ get_perm_sign_mat <- function(nvar, free_cols = 1:nvar){
     replicate(list(c(1,-1))) %>% 
     expand.grid %>% 
     apply(1, function(x) diag(x), simplify = FALSE)
+  
+  if(length(free_cols)<nvar){
+    fixed <- which(!(1:nvar)%in%free_cols)
+    sign_mat_arr <- abind::abind(sign_mat_list, along=3)
+    for(j in 1:dim(sign_mat_arr)[3]){
+      if(length(fixed)>1){
+        diag(sign_mat_arr[fixed,fixed,j]) <- 1
+      } else{ 
+        sign_mat_arr[fixed,fixed,j] <- 1
+      }
+    }
+    sign_mat_list <- apply(sign_mat_arr, 3, identity, simplify = FALSE) %>% unique
+  }
   
   # Helper matrix
   perm_col_mat <- matrix(1:nvar, nvar, factorial(length(free_cols)))
