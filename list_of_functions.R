@@ -142,7 +142,7 @@ id_news_shox <- function(irf_arr, policy_var)
 
 rotmat <- function(x, n)
 {
-  rot_ix <- combn(n,2)
+  rot_ix <- t(t(combn(n,2)))
   final_mat <- diag(n)
   
   for(jj in 1:ncol(rot_ix)){
@@ -226,6 +226,42 @@ zero_rest <- function(target_mat, zero_ix){
   rot_mat
 }
 
+optim_pwise <- function(theta0,
+                        tmpl,
+                        optim_args,
+                        algo = c("bfgs", "newuoa")){
+  
+  optim_s <- purrr::safely(if(algo=="bfgs") stats::optim else nloptr::bobyqa)
+  
+  if(length(theta0)!=tmpl$n_par) stop("Provide a suitable parameter vector.")
+  th0_slope <- theta0[iseq(1, tmpl$ar$n_par+tmpl$ma_bwd$n_par+tmpl$ma_fwd$n_par)]
+  th0_distr <- theta0[!theta0%in%th0_slope]
+  
+  # Optimization: slope parameters
+  optim_args$par <- th0_slope
+  optim_args$noise_prms <- fill_tmpl_whf_rev(theta0, tmpl)[c(4,5)]
+  if(algo == "bfgs") optim_args$method = "BFGS"
+  if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
+  slope_optim <- do.call(optim_s, optim_args)
+  if(is.null(slope_optim$result)) return(slope_optim)
+
+  # Optimization: distribution parameters
+  optim_args$noise_prms <- NULL
+  optim_args$slope_prms <- fill_tmpl_whf_rev(slope_optim$result$par, tmpl)[-c(4,5)]
+  optim_args$par <- th0_distr
+  if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
+  distr_optim <- do.call(optim_s, optim_args)
+
+  # Return results: check if 2nd optimization better than 1st (should be)
+  if(!is.null(distr_optim$result) && distr_optim$result$value < slope_optim$result$value){
+    distr_optim$result$par <- c(slope_optim$result$par, distr_optim$result$par)
+    return(distr_optim)
+  } else{
+    slope_optim$result$par <- c(slope_optim$result$par, th0_distr)
+    return(slope_optim)
+  }
+}
+
 
 get_fevd <- function (irf_arr, int_var = NULL, by_arg = NULL)
 {
@@ -289,29 +325,152 @@ get_rest_irf <- function(tbl_slice, ...)
   return(list(irf = irf_out, pval = pval, rmat = opt_obj$rmat))
 }
 
+comp_fn <- function(nobs = 250, dim_out = 4, ar_ord = 2, ma_ord = 2,
+                    k_val = 1, kappa_val = 1, max_p_q = 100, init_opt = c("min", "max"),
+                    path2f = "list_of_functions.R", seed=FALSE)
+{
+ 
+  if(is.numeric(seed)) set.seed(seed)
+  tmpl_i <- tmpl_whf_rev(dim_out, ar_ord, ma_ord, 
+                         k_val, kappa_val, shock_distr = "gaussian")
+  theta0 <- get_init_armamod_whf_random(matrix(rnorm(nobs*dim_out), nobs, dim_out), 
+                                        tmpl = tmpl_i) %>% 
+    perm_init(1, tmpl_i) %>% .[[2]]
+  
+  nok <- TRUE
+  tmp <- runif(dim_out^2*ar_ord, -2, 2)
+  polm_ar <- array(c(diag(dim_out), tmp), c(dim_out, dim_out, ar_ord+1))
+  while(nok){
+    theta0[1:(dim_out*dim_out*ar_ord)] <- c(polm_ar[,,-1])
+    nok <- max(abs(eigen(companion_matrix(polm_ar))$val))>1
+    polm_ar[,,-1] <- polm_ar[,,-1]*0.9
+  }
+  armamod <- with(armamod_whf(theta0, tmpl_i), armamod(lmfd(polm_ar, polm_ma), B))
+  irf0 <- irf_whf(theta0, tmpl_i, 12)
+  data <- simu_y(armamod, 
+                 n.obs = nobs, 
+                 n.burnin = 1000, 
+                 rand.gen = function(x) rt(x, 3))$y
+  theta0 <- c(theta0, log((rep(3, dim_out) + 0.001)/(max_p_q - rep(3, dim_out))))
+  tmpl <- tmpl_whf_rev(dim_out, ar_ord, ma_ord, 
+                       k_val, kappa_val, shock_distr = "tdist")
+  ll_test <- ll_whf_factory(data_wide = t(data), 
+                            tmpl = tmpl,
+                            shock_distr = "tdist",
+                            penalty_prm = max_p_q)
+  
+  init_val <- perm_init(theta0, 100, tmpl)[-1]
+  if(is.numeric(seed)) rm(.Random.seed, envir=.GlobalEnv)
+
+  eucl_d <- sapply(init_val, function(x) crossprod(head(x - theta0, -dim_out)))
+  init_val <- init_val[[if(init_opt=="max") which.max(eucl_d) else which.min(eucl_d)]]
+  irf_init <- irf_whf(init_val, tmpl, 12)
+  ll_d0 <- ll_test(init_val)
+  prm_d0 <- crossprod(head(init_val-theta0, -dim_out*(dim_out+1)))
+  irf_d0 <- crossprod(c(irf_init-irf0))
+  
+  par_fun <- function(x, path2f){
+    res_mat <- matrix(NA, 1, 5)
+    colnames(res_mat) <- c("value", "prm_dist", "irf_dist", "convg", "time")
+    rownames(res_mat) <- if(x==1) "BFGS" else if(x==2) "BFGS_pc"  else if(x==3) "newuoa" else "newuoa_pc"
+    
+    if(x==1){
+      # BFGS pt. 1 ............................................
+      res_mat["BFGS", "time"] <- system.time(
+        bfgs_run <- optim(init_val,
+                          fn = ll_test,
+                          method = "BFGS",
+                          control = list(maxit=500)))[3]
+      irf_tmp <- irf_whf(bfgs_run$par, tmpl, 12)
+      rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
+      
+      res_mat["BFGS", "value"] <- bfgs_run$value/ll_d0
+      res_mat["BFGS", "prm_dist"] <- crossprod(head(bfgs_run$par-theta0, 
+                                                    -dim_out*(dim_out+1)))/prm_d0
+      res_mat["BFGS", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
+      res_mat["BFGS", "convg"] <- as.numeric(bfgs_run$convergence==0)
+      
+    } else if(x==2){
+      # BFGS pt. 2 ...........................................
+      res_mat["BFGS_pc", "time"] <- system.time(
+        bfgs_pc_run <- optim_pwise(theta0 = init_val,
+                                   tmpl = tmpl,
+                                   optim_args = list(fn = ll_test,
+                                                     control = list(maxit = 500)),
+                                   algo = "bfgs"))[3]
+      irf_tmp <- irf_whf(bfgs_pc_run$result$par, tmpl, 12)
+      rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
+      
+      res_mat["BFGS_pc", "value"] <- bfgs_pc_run$result$value/ll_d0
+      res_mat["BFGS_pc", "prm_dist"] <- crossprod(head(bfgs_pc_run$result$par-theta0, 
+                                                       -dim_out*(dim_out+1)))/prm_d0
+      res_mat["BFGS_pc", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
+      res_mat["BFGS_pc", "convg"] <- as.numeric(bfgs_pc_run$result$convergence==0)
+      
+    } else if(x==3){
+      
+      # NEWUOA pt. 1 ..........................................
+      res_mat["newuoa", "time"] <- system.time(
+        newu_run1 <- nloptr::bobyqa(x0 = init_val,
+                                    fn = ll_test,
+                                    control = list(ftol_rel = 1e-9,
+                                                   maxeval = 1e5)))[3]
+      irf_tmp <- irf_whf(newu_run1$par, tmpl, 12)
+      rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
+      
+      res_mat["newuoa", "value"] <- newu_run1$value/ll_d0
+      res_mat["newuoa", "prm_dist"] <- crossprod(head(newu_run1$par-theta0, 
+                                                      -dim_out*(dim_out+1)))/prm_d0
+      res_mat["newuoa", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
+      res_mat["newuoa", "convg"] <- as.numeric(newu_run1$iter<1e5)
+      
+    } else if(x==4){
+    # NEWUOA pt. 2 ..........................................
+    res_mat["newuoa_pc", "time"] <- system.time(
+      newu_run2 <- optim_pwise(theta0 = init_val,
+                               tmpl = tmpl,
+                               optim_args = list(fn = ll_test,
+                                                 control = list(ftol_rel = 1e-9,
+                                                                maxeval = 1e5)),
+                               algo = "newuoa"))[3]
+    
+    irf_tmp <- irf_whf(newu_run2$result$par, tmpl, 12)
+    rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
+    
+    res_mat["newuoa_pc", "value"] <- newu_run2$result$value/ll_d0
+    res_mat["newuoa_pc", "prm_dist"] <- crossprod(head(newu_run2$result$par-theta0, 
+                                                       -dim_out*(dim_out+1)))/prm_d0
+    res_mat["newuoa_pc", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
+    res_mat["newuoa_pc", "convg"] <- as.numeric(newu_run2$result$iter<1e5)
+  }
+    res_mat
+  }
+  cl <- parallel::makeCluster(4)
+  parallel::clusterCall(cl, function() { source(path2f) })  
+  parallel::clusterEvalQ(cl, library("tidyverse"))  
+  parallel::clusterEvalQ(cl, library("svarmawhf"))
+  out <- parallel::clusterApplyLB(cl, 1:4, par_fun)
+  parallel::stopCluster(cl)
+  do.call(rbind, out)
+}
+
+
 choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs", "min_rmse"))
 {
   nvar <- ncol(cand_mat)
-  sign_ix <- nvar %>% replicate(list(c(-1,1))) %>% expand.grid
-  perm_ix <- nvar %>% 
-    replicate(list(1:nvar)) %>% 
-    expand.grid %>% 
-    filter(apply(., 1, n_distinct)==nvar)
+  perm_sign_list <- get_perm_sign_mat(nvar)
   cr0 <- 1e25
-  for(j in 1:nrow(sign_ix)){
-    for(jj in 1:nrow(perm_ix)){
-      rt_mat <- diag(sign_ix[j, ]) %*% diag(nvar)[, unlist(perm_ix[jj, ])]
-      x1 <- if(type=="min_rmse") cand_mat %r% rt_mat else cand_mat %*% rt_mat
-      if(type%in%c("frob", "min_rmse")){
-        cr1 <- sqrt(mean(c(target_mat - x1)^2))
-      } else if(type=="dg_abs"){
-        cr1 <- if(all(diag(x1)>0)) -abs(prod(diag(x1))) else 1e25
-      }
-      if(cr1 < cr0){
-        x_opt <- x1
-        rt_opt <- rt_mat
-        cr0 <- cr1
-      }
+  for(j in seq_along(perm_sign_list)){
+    rt_mat <- perm_sign_list[[j]]
+    x1 <- if(type=="min_rmse") cand_mat %r% rt_mat else cand_mat %*% rt_mat
+    if(type%in%c("frob", "min_rmse")){
+      cr1 <- sqrt(mean(c(target_mat - x1)^2))
+    } else if(type=="dg_abs"){
+      cr1 <- if(all(diag(x1)>0)) -abs(prod(diag(x1))) else 1e25
+    }
+    if(cr1 < cr0){
+      rt_opt <- rt_mat
+      cr0 <- cr1
     }
   }
   rt_opt
@@ -463,40 +622,50 @@ id_mixed_old <- function(chol_irf,
   list_out
 }
 
-id_mixed_new <- function(chol_irf,
+id_mixed_new <- function(irf_arr,
+                         emp_innov,
+                         w_mat,
                          rest_mat,
                          news_rest = NULL,
+                         rest_mom = NULL,
                          ndraws = 1e3,
-                         max_draws = ndraws*100,
+                         max_draws = ndraws*1e3,
                          irf_cb = c(0.14, 0.86),
                          replace_md = TRUE,
                          verbose = FALSE){
   # Extract IRF dimension
-  irf_dim <- dim(chol_irf)
+  irf_dim <- dim(irf_arr)
   # Number of variables
   nvar <- irf_dim[1]
+  # Obtain orthogonalized IRFs
+  if(is.character(w_mat) && w_mat=="chol"){
+    w_mat <- t(chol(cov(emp_innov)))
+  } else if(is.character(w_mat) && w_mat=="eig_sqrt"){
+    w_mat <- with(eigen(cov(emp_innov)), vectors%*%diag(values^.5)%*%solve(vectors))
+  } else{
+    stopifnot("Provide a suitable whitening matrix" = all(dim(w_mat) %in% irf_dim[2]))
+  }
+  chol_irf <- irf_arr
+  chol_irf[] <- apply(irf_arr, 3, function(x) x%*%w_mat)
+  
   # Initialize output to arrays: IRFs and resulting orthogonal matrices
   imp_arr <- array(NA, c(irf_dim, ndraws))
-  omat_arr <- array(NA, c(nvar, nvar, ndraws))
+  shock_arr <- array(NA, c(dim(emp_innov), ndraws))
+  
   # Signed permutation matrices
-  perm_sign_rd1 <- get_perm_sign_mat(nvar) %>% abind::abind(along = 3)
+  perm_sign_list <- get_perm_sign_mat(nvar) %>% abind::abind(along = 3) %>% list()
   
   # Subsetting index of elements with only sign restrictions, i.e. length of the tested prms
   sign_ix <- which(rest_mat!=0)
-  
-  # Index of allowed column permutations 
-  no_zr_ix <- apply(rest_mat, 2, function(x) !(0 %in% x))
+
   # Obtain zero restrictions
   zr_ix <- which(rest_mat==0, arr.ind = TRUE)[,1:2]
+  zr_yes <- length(zr_ix)!=0
   
   # For checking sign reversals in the two columns multiplied by the Givens mat
-  if(length(zr_ix)!=0){
+  if(zr_yes){
     tmp_ix <- ifelse(zr_ix[2]==1, zr_ix[2], zr_ix[2]-1)
-    perm_sign_rd2 <- lapply(get_perm_sign_mat(nvar, tmp_ix), 
-                            function(x) lapply(get_perm_sign_mat(nvar, tmp_ix+1),
-                                               function(y) x%*%y) 
-                            ) %>% 
-      unlist(recursive = FALSE) %>% 
+    perm_sign_list[[2]] <- get_perm_sign_mat(nvar, 0, tmp_ix:(tmp_ix+1)) %>% 
       abind::abind(along = 3)
   }
 
@@ -506,7 +675,7 @@ id_mixed_new <- function(chol_irf,
   max_i <- 1
   
   # Print progress bar
-  if(verbose) cat("Search in progress")  
+  if(verbose) cat("Search in progress")
   while(!search_complete){
     # Generate random orth. matrix using QR decomp
     qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
@@ -519,21 +688,31 @@ id_mixed_new <- function(chol_irf,
                      ort_mat = ort_mat, 
                      rest_arr = rest_mat, 
                      sign_ix = sign_ix, 
-                     perm_sign_arr = perm_sign_rd1,
-                     news_info = if(length(zr_ix)!=0 || is.null(news_rest)) c(0,0,0) else news_rest)
+                     perm_sign_arr = perm_sign_list[[1]],
+                     news_info = if(zr_yes || is.null(news_rest)) c(0,0,0) else news_rest)
     rot_out <- do.call(search_rotations_cpp, arg_list)
     
     # Multiply by Givens matrix if zero restrictions imposed
-    if(length(zr_ix)!=0){
+    if(zr_yes){
       arg_list$ort_mat <- rot_out$omat%*%zero_rest(rot_out$irf_tmp[,,1], zr_ix)
-      arg_list$perm_sign_arr <- perm_sign_rd2
+      arg_list$perm_sign_arr <- perm_sign_list[[2]]
       if(!is.null(news_rest)) arg_list$news_info <- news_rest
       rot_out <- do.call(search_rotations_cpp, arg_list)
+    }
+    
+    # Additionally, check moment restrictions of the resulting shocks if applicable
+    if(rot_out$success && !is.null(rest_mom)){
+      shock_tmp <- t(solve(w_mat%*%rot_out$omat, t(emp_innov)))
+      test_stat <- apply(X = shock_tmp[, rest_mom$test_shocks, drop=FALSE], 
+                         MARGIN = 2, 
+                         FUN = robust_hmoms, 
+                         type = rest_mom$type)
+      rot_out$success <- all(test_stat > rest_mom$threshold)
     }
 
     if(rot_out$success){
       # Save results 
-      omat_arr[, , i] <- rot_out$omat
+      shock_arr[, , i] <- shock_tmp
       imp_arr[, , , i] <- rot_out$irf_tmp
       # Increase loop index if restrictions satisfied
       i <- i + 1
@@ -555,12 +734,12 @@ id_mixed_new <- function(chol_irf,
   if(i==1){
     list_out <- "No rotations found."
   } else{
-    # Collect output, note that 'i - 1' returns the true number of draws 
+    # Collect output, note that 'i - 1' returns the correct number of draws 
     # matching the restrictions
     list_out <- list(irf = drop(imp_arr[, , , 1:(i - 1)]), 
-                     bmat = omat_arr[, , 1:(i - 1)],
+                     shocks = shock_arr[, , 1:(i - 1)],
                      draws_ok = i - 1,
-                     draws_total = max_i - 1) 
+                     draws_total = max_i - 1)
     # Append the output list with confidence bands if applicable
     if(!is.null(irf_cb)){
       list_out$irf_qt <- apply(X = imp_arr, 
@@ -606,7 +785,7 @@ Rcpp::cppFunction(depends = "RcppArmadillo",
   	for(int j = 0; j < chol_irf.n_slices; j++){
   		irf_temp.slice(j) = chol_irf.slice(j)*ort_temp;
   	}
-  	// vectorize restrictions and irf array
+  	// vectorize irf array
   	irf_vec = arma::vectorise(irf_temp);
   	// subset restricted elements into column vector
   	irf_vec_sub = irf_vec.elem(sign_ix-1);
@@ -629,6 +808,25 @@ Rcpp::cppFunction(depends = "RcppArmadillo",
   return List::create(Named("success") = rot_ok, Rcpp::Named("omat") = ort_temp, Rcpp::Named("irf_tmp") = irf_temp);
   }'
 )
+
+robust_hmoms <- function(x, type = c("skew", "kurt")){
+  
+  nobs <- length(x)
+  xsort <- sort(x)
+  if(type=="skew"){
+    out <- (mean(x)-xsort[ceiling(nobs*0.5)])/sd(x)
+  } else if(type=="kurt"){
+    p1 <- c(25,250,750,975)/1000
+    num <- xsort[ floor(p1[4]*nobs) ] - xsort[ ceiling(p1[1]*nobs) ]
+    den <- xsort[ round(p1[3]*nobs) ] - xsort[ round(p1[2]*nobs) ]
+    n_kurt <- (qnorm(p1[4])-qnorm(p1[1]))/(qnorm(p1[3])-qnorm(p1[2]))
+    out <- num/den - n_kurt
+  } else {
+    stop("Specifcy correct *type*") 
+  }
+  out
+}
+
 
 # RESULTS: FIGS & TBLS
 plot_irf <- function(irf_arr, var_name = NULL, shock_name = NULL, date_break = 12)
@@ -711,7 +909,7 @@ get_stats_tbl <- function(x)
 
 get_cor_tbl <- function(x)
 {
-  comb_i <- combn(ncol(x),2)
+  comb_i <- t(t(combn(ncol(x),2)))
   l_corr <- cor(x, method = "pearson") %>% round(3)
   r_corr <- cor(x, method = "spearman") %>% round(3)
   for(j in 1:ncol(comb_i)){
@@ -1072,7 +1270,7 @@ get_res_app1 <- function(res_tbl)
   row_3 <- paste0(rep(c(" SVARMA ", " SVAR "), length(nobs)), collapse ="&")
   tmp_tbl <- res_tbl %>% 
     pivot_wider(names_from = c(nobs, p),
-                values_from = mad_md) %>% 
+                values_from = mean_bias) %>% 
     mutate(beta = factor(beta),
            nu = factor(nu)) %>% 
     mutate_if(is.numeric, round, digits=3) %>% 
@@ -1102,42 +1300,47 @@ get_res_app1 <- function(res_tbl)
   )
 }
 
-get_perm_sign_mat <- function(nvar, free_cols = 1:nvar){
+get_perm_sign_mat <- function(nvar, free_perm = 1:nvar, free_sign = 1:nvar){
+  
+  if(0%in%free_sign && 0%in%free_perm) return(diag(nvar))
   
   # Create a list of size 2^nvar containing all distinct matrices with 
-  # 1 and -1 on the diagonal 
-  sign_mat_list <- nvar %>% 
-    replicate(list(c(1,-1))) %>% 
-    expand.grid %>% 
-    apply(1, function(x) diag(x), simplify = FALSE)
-  
-  if(length(free_cols)<nvar){
-    fixed <- which(!(1:nvar)%in%free_cols)
-    sign_mat_arr <- abind::abind(sign_mat_list, along=3)
-    for(j in 1:dim(sign_mat_arr)[3]){
-      if(length(fixed)>1){
-        diag(sign_mat_arr[fixed,fixed,j]) <- 1
-      } else{ 
-        sign_mat_arr[fixed,fixed,j] <- 1
+  # 1 and -1 on the diagonal
+  if(!0%in%free_sign){
+    sign_mat_list <- nvar %>% 
+      replicate(list(c(1,-1))) %>% 
+      expand.grid %>% 
+      apply(1, function(x) diag(x), simplify = FALSE)
+    
+    if(length(free_sign)<nvar){
+      fixed <- which(!(1:nvar)%in%free_sign)
+      for(j in seq_along(sign_mat_list)){
+        if(length(fixed)>1){
+          diag(sign_mat_list[[j]][fixed,fixed]) <- 1
+        } else{
+          sign_mat_list[[j]][fixed,fixed] <- 1
+        }
       }
+      sign_mat_list <- unique(sign_mat_list)
     }
-    sign_mat_list <- apply(sign_mat_arr, 3, identity, simplify = FALSE) %>% unique
+  } else{
+    sign_mat_list <- list(diag(nvar))
   }
-  
+  if(0%in%free_perm) return(sign_mat_list)
   # Helper matrix
-  perm_col_mat <- matrix(1:nvar, nvar, factorial(length(free_cols)))
+  perm_col_mat <- matrix(1:nvar, nvar, factorial(length(free_perm)))
   
   # Create all permutations of the free columns, where free column
   # refers to absence of zero restrictions
-  perm_free_col <- length(free_cols) %>% 
-    replicate(list(free_cols)) %>% 
+  perm_free_col <- length(free_perm) %>% 
+    replicate(list(free_perm)) %>% 
     expand.grid %>% 
-    filter(apply(., 1, n_distinct)==length(free_cols)) %>% 
+    filter(apply(., 1, n_distinct)==length(free_perm)) %>% 
     t
 
   # Replace the non-fixed columns with permutations 
   # into columns of the helper matrix 
-  perm_col_mat[(1:nvar)%in%free_cols, ] <- perm_free_col
+  perm_col_mat[(1:nvar)%in%free_perm, ] <- perm_free_col
   
   # Create all allowed permutation matrices 
   perm_mat_list <- apply(X = perm_col_mat, 
