@@ -226,42 +226,41 @@ zero_rest <- function(target_mat, zero_ix){
   rot_mat
 }
 
-optim_pwise <- function(theta0,
-                        tmpl,
-                        optim_args,
-                        algo = c("bfgs", "newuoa")){
-  
-  optim_s <- purrr::safely(if(algo=="bfgs") stats::optim else nloptr::bobyqa)
-  
-  if(length(theta0)!=tmpl$n_par) stop("Provide a suitable parameter vector.")
-  th0_slope <- theta0[iseq(1, tmpl$ar$n_par+tmpl$ma_bwd$n_par+tmpl$ma_fwd$n_par)]
-  th0_distr <- theta0[!theta0%in%th0_slope]
-  
-  # Optimization: slope parameters
-  optim_args$par <- th0_slope
-  optim_args$noise_prms <- fill_tmpl_whf_rev(theta0, tmpl)[c(4,5)]
-  if(algo == "bfgs") optim_args$method = "BFGS"
-  if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
-  slope_optim <- do.call(optim_s, optim_args)
-  if(is.null(slope_optim$result)) return(slope_optim)
-
-  # Optimization: distribution parameters
-  optim_args$noise_prms <- NULL
-  optim_args$slope_prms <- fill_tmpl_whf_rev(slope_optim$result$par, tmpl)[-c(4,5)]
-  optim_args$par <- th0_distr
-  if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
-  distr_optim <- do.call(optim_s, optim_args)
-
-  # Return results: check if 2nd optimization better than 1st (should be)
-  if(!is.null(distr_optim$result) && distr_optim$result$value < slope_optim$result$value){
-    distr_optim$result$par <- c(slope_optim$result$par, distr_optim$result$par)
-    return(distr_optim)
-  } else{
-    slope_optim$result$par <- c(slope_optim$result$par, th0_distr)
-    return(slope_optim)
-  }
-}
-
+# optim_pwise <- function(theta0,
+#                         tmpl,
+#                         optim_args,
+#                         algo = c("bfgs", "newuoa")){
+#   
+#   optim_s <- purrr::safely(if(algo=="bfgs") stats::optim else nloptr::bobyqa)
+#   
+#   if(length(theta0)!=tmpl$n_par) stop("Provide a suitable parameter vector.")
+#   th0_slope <- theta0[iseq(1, tmpl$ar$n_par+tmpl$ma_bwd$n_par+tmpl$ma_fwd$n_par)]
+#   th0_distr <- theta0[!theta0%in%th0_slope]
+#   
+#   # Optimization: slope parameters
+#   optim_args$par <- th0_slope
+#   optim_args$noise_prms <- fill_tmpl_whf_rev(theta0, tmpl)[c(4,5)]
+#   if(algo == "bfgs") optim_args$method = "BFGS"
+#   if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
+#   slope_optim <- do.call(optim_s, optim_args)
+#   if(is.null(slope_optim$result)) return(slope_optim)
+# 
+#   # Optimization: distribution parameters
+#   optim_args$noise_prms <- NULL
+#   optim_args$slope_prms <- fill_tmpl_whf_rev(slope_optim$result$par, tmpl)[-c(4,5)]
+#   optim_args$par <- th0_distr
+#   if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
+#   distr_optim <- do.call(optim_s, optim_args)
+# 
+#   # Return results: check if 2nd optimization better than 1st (should be)
+#   if(!is.null(distr_optim$result) && distr_optim$result$value < slope_optim$result$value){
+#     distr_optim$result$par <- c(slope_optim$result$par, distr_optim$result$par)
+#     return(distr_optim)
+#   } else{
+#     slope_optim$result$par <- c(slope_optim$result$par, th0_distr)
+#     return(slope_optim)
+#   }
+# }
 
 get_fevd <- function (irf_arr, int_var = NULL, by_arg = NULL)
 {
@@ -326,10 +325,10 @@ get_rest_irf <- function(tbl_slice, ...)
 }
 
 comp_fn <- function(nobs = 250, dim_out = 4, ar_ord = 2, ma_ord = 2,
-                    k_val = 1, kappa_val = 1, max_p_q = 100, init_opt = c("min", "max"),
-                    path2f = "list_of_functions.R", seed=FALSE)
+                    k_val = 1, kappa_val = 1, max_p_q = 100, 
+                    init_max = TRUE, seed = FALSE, 
+                    par_opt = FALSE, path2f = NULL)
 {
- 
   if(is.numeric(seed)) set.seed(seed)
   tmpl_i <- tmpl_whf_rev(dim_out, ar_ord, ma_ord, 
                          k_val, kappa_val, shock_distr = "gaussian")
@@ -361,34 +360,44 @@ comp_fn <- function(nobs = 250, dim_out = 4, ar_ord = 2, ma_ord = 2,
   
   init_val <- perm_init(theta0, 100, tmpl)[-1]
   if(is.numeric(seed)) rm(.Random.seed, envir=.GlobalEnv)
-
+  
   eucl_d <- sapply(init_val, function(x) crossprod(head(x - theta0, -dim_out)))
-  init_val <- init_val[[if(init_opt=="max") which.max(eucl_d) else which.min(eucl_d)]]
+  init_val <- init_val[[if(init_max) which.max(eucl_d) else which.min(eucl_d)]]
   irf_init <- irf_whf(init_val, tmpl, 12)
   ll_d0 <- ll_test(init_val)
   prm_d0 <- crossprod(head(init_val-theta0, -dim_out*(dim_out+1)))
   irf_d0 <- crossprod(c(irf_init-irf0))
+  
+  max_bfgs <- 300
+  max_newuoa <- 1e4
   
   par_fun <- function(x, path2f){
     res_mat <- matrix(NA, 1, 5)
     colnames(res_mat) <- c("value", "prm_dist", "irf_dist", "convg", "time")
     rownames(res_mat) <- if(x==1) "BFGS" else if(x==2) "BFGS_pc"  else if(x==3) "newuoa" else "newuoa_pc"
     
+    res_fun <- function(par, ll_val, iter, iter_max){
+      irf_tmp <- irf_whf(par, tmpl, 12)
+      rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
+      
+      c(ll_val/ll_d0,                                             # value
+        crossprod(head(par-theta0, -dim_out*(dim_out+1)))/prm_d0, # prm_dist
+        crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0,              # irf_dist
+        as.numeric(iter>=iter_max)                                # convg
+        )
+    }
     if(x==1){
       # BFGS pt. 1 ............................................
       res_mat["BFGS", "time"] <- system.time(
         bfgs_run <- optim(init_val,
                           fn = ll_test,
                           method = "BFGS",
-                          control = list(maxit=500)))[3]
-      irf_tmp <- irf_whf(bfgs_run$par, tmpl, 12)
-      rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
+                          control = list(maxit=max_bfgs)))[3]
       
-      res_mat["BFGS", "value"] <- bfgs_run$value/ll_d0
-      res_mat["BFGS", "prm_dist"] <- crossprod(head(bfgs_run$par-theta0, 
-                                                    -dim_out*(dim_out+1)))/prm_d0
-      res_mat["BFGS", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
-      res_mat["BFGS", "convg"] <- as.numeric(bfgs_run$convergence==0)
+      res_mat["BFGS", -which(colnames(res_mat)=="time")] <- res_fun(bfgs_run$par, 
+                                                                    bfgs_run$value,
+                                                                    bfgs_run$counts[1],
+                                                                    max_bfgs)
       
     } else if(x==2){
       # BFGS pt. 2 ...........................................
@@ -396,61 +405,53 @@ comp_fn <- function(nobs = 250, dim_out = 4, ar_ord = 2, ma_ord = 2,
         bfgs_pc_run <- optim_pwise(theta0 = init_val,
                                    tmpl = tmpl,
                                    optim_args = list(fn = ll_test,
-                                                     control = list(maxit = 500)),
+                                                     control = list(maxit = max_bfgs)),
                                    algo = "bfgs"))[3]
-      irf_tmp <- irf_whf(bfgs_pc_run$result$par, tmpl, 12)
-      rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
       
-      res_mat["BFGS_pc", "value"] <- bfgs_pc_run$result$value/ll_d0
-      res_mat["BFGS_pc", "prm_dist"] <- crossprod(head(bfgs_pc_run$result$par-theta0, 
-                                                       -dim_out*(dim_out+1)))/prm_d0
-      res_mat["BFGS_pc", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
-      res_mat["BFGS_pc", "convg"] <- as.numeric(bfgs_pc_run$result$convergence==0)
-      
+      res_mat["BFGS_pc", -which(colnames(res_mat)=="time")] <- res_fun(bfgs_pc_run$result$par, 
+                                                                       bfgs_pc_run$result$value,
+                                                                       bfgs_pc_run$result$counts[1], 
+                                                                       max_bfgs)
     } else if(x==3){
       
       # NEWUOA pt. 1 ..........................................
       res_mat["newuoa", "time"] <- system.time(
         newu_run1 <- nloptr::bobyqa(x0 = init_val,
                                     fn = ll_test,
-                                    control = list(ftol_rel = 1e-9,
-                                                   maxeval = 1e5)))[3]
-      irf_tmp <- irf_whf(newu_run1$par, tmpl, 12)
-      rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
+                                    control = list(ftol_rel = 1e-6,
+                                                   maxeval = max_newuoa)))[3]
       
-      res_mat["newuoa", "value"] <- newu_run1$value/ll_d0
-      res_mat["newuoa", "prm_dist"] <- crossprod(head(newu_run1$par-theta0, 
-                                                      -dim_out*(dim_out+1)))/prm_d0
-      res_mat["newuoa", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
-      res_mat["newuoa", "convg"] <- as.numeric(newu_run1$iter<1e5)
+      res_mat["newuoa", -which(colnames(res_mat)=="time")] <- res_fun(newu_run1$par, 
+                                                                      newu_run1$value,
+                                                                      newu_run1$iter, 
+                                                                      max_newuoa)
       
     } else if(x==4){
-    # NEWUOA pt. 2 ..........................................
-    res_mat["newuoa_pc", "time"] <- system.time(
-      newu_run2 <- optim_pwise(theta0 = init_val,
-                               tmpl = tmpl,
-                               optim_args = list(fn = ll_test,
-                                                 control = list(ftol_rel = 1e-9,
-                                                                maxeval = 1e5)),
-                               algo = "newuoa"))[3]
-    
-    irf_tmp <- irf_whf(newu_run2$result$par, tmpl, 12)
-    rot_tmp <- choose_perm_sign(irf0, irf_tmp, "min_rmse")
-    
-    res_mat["newuoa_pc", "value"] <- newu_run2$result$value/ll_d0
-    res_mat["newuoa_pc", "prm_dist"] <- crossprod(head(newu_run2$result$par-theta0, 
-                                                       -dim_out*(dim_out+1)))/prm_d0
-    res_mat["newuoa_pc", "irf_dist"] <- crossprod(c(irf_tmp%r%rot_tmp-irf0))/irf_d0
-    res_mat["newuoa_pc", "convg"] <- as.numeric(newu_run2$result$iter<1e5)
-  }
+      # NEWUOA pt. 2 ..........................................
+      res_mat["newuoa_pc", "time"] <- system.time(
+        newu_run2 <- optim_pwise(theta0 = init_val,
+                                 tmpl = tmpl,
+                                 optim_args = list(fn = ll_test,
+                                                   control = list(ftol_rel = 1e-6,
+                                                                  maxeval = max_newuoa)),
+                                 algo = "newuoa"))[3]
+      res_mat["newuoa_pc", -which(colnames(res_mat)=="time")] <- res_fun(newu_run2$result$par, 
+                                                                         newu_run2$result$value,
+                                                                         newu_run2$result$iter, 
+                                                                         max_newuoa)
+    }
     res_mat
   }
-  cl <- parallel::makeCluster(4)
-  parallel::clusterCall(cl, function() { source(path2f) })  
-  parallel::clusterEvalQ(cl, library("tidyverse"))  
-  parallel::clusterEvalQ(cl, library("svarmawhf"))
-  out <- parallel::clusterApplyLB(cl, 1:4, par_fun)
-  parallel::stopCluster(cl)
+  if(par_opt){
+    cl <- parallel::makeCluster(4)
+    parallel::clusterCall(cl, function(){ source(path2f) })
+    parallel::clusterEvalQ(cl, library(tidyverse))
+    parallel::clusterEvalQ(cl, library(svarmawhf))
+    out <- parallel::parLapply(cl, 1:4, par_fun)
+    parallel::stopCluster(cl)
+  } else{
+    out <- lapply(1:4, par_fun) 
+  }
   do.call(rbind, out)
 }
 
