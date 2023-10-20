@@ -226,42 +226,6 @@ zero_rest <- function(target_mat, zero_ix){
   rot_mat
 }
 
-# optim_pwise <- function(theta0,
-#                         tmpl,
-#                         optim_args,
-#                         algo = c("bfgs", "newuoa")){
-#   
-#   optim_s <- purrr::safely(if(algo=="bfgs") stats::optim else nloptr::bobyqa)
-#   
-#   if(length(theta0)!=tmpl$n_par) stop("Provide a suitable parameter vector.")
-#   th0_slope <- theta0[iseq(1, tmpl$ar$n_par+tmpl$ma_bwd$n_par+tmpl$ma_fwd$n_par)]
-#   th0_distr <- theta0[!theta0%in%th0_slope]
-#   
-#   # Optimization: slope parameters
-#   optim_args$par <- th0_slope
-#   optim_args$noise_prms <- fill_tmpl_whf_rev(theta0, tmpl)[c(4,5)]
-#   if(algo == "bfgs") optim_args$method = "BFGS"
-#   if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
-#   slope_optim <- do.call(optim_s, optim_args)
-#   if(is.null(slope_optim$result)) return(slope_optim)
-# 
-#   # Optimization: distribution parameters
-#   optim_args$noise_prms <- NULL
-#   optim_args$slope_prms <- fill_tmpl_whf_rev(slope_optim$result$par, tmpl)[-c(4,5)]
-#   optim_args$par <- th0_distr
-#   if(algo == "newuoa") names(optim_args)[names(optim_args) == "par"] <- "x0"
-#   distr_optim <- do.call(optim_s, optim_args)
-# 
-#   # Return results: check if 2nd optimization better than 1st (should be)
-#   if(!is.null(distr_optim$result) && distr_optim$result$value < slope_optim$result$value){
-#     distr_optim$result$par <- c(slope_optim$result$par, distr_optim$result$par)
-#     return(distr_optim)
-#   } else{
-#     slope_optim$result$par <- c(slope_optim$result$par, th0_distr)
-#     return(slope_optim)
-#   }
-# }
-
 get_fevd <- function (irf_arr, int_var = NULL, by_arg = NULL)
 {
   irf_arr <- unclass(irf_arr)
@@ -369,7 +333,7 @@ comp_fn <- function(nobs = 250, dim_out = 4, ar_ord = 2, ma_ord = 2,
   irf_d0 <- crossprod(c(irf_init-irf0))
   
   max_bfgs <- 300
-  max_newuoa <- 1e4
+  max_newuoa <- 1e5
   
   par_fun <- function(x, path2f){
     res_mat <- matrix(NA, 1, 5)
