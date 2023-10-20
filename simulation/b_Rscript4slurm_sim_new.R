@@ -58,6 +58,7 @@ params$USE_BFGS_SGT = TRUE
 params$USE_NM_SGT = FALSE
 params$USE_CS_SGT = FALSE
 params$MAXIT_BFGS_SGT = 1e5 # default for derivative based methods
+params$FTOL_REL <- 1e-9
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
 

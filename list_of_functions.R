@@ -1,3 +1,5 @@
+incl_rcpp <- FALSE
+
 # SIMULATIONS
 simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
 {
@@ -720,60 +722,61 @@ id_mixed_new <- function(irf_arr,
   list_out
 }
 
-Rcpp::cppFunction(depends = "RcppArmadillo",
-  'List search_rotations_cpp(
-  const arma::cube& chol_irf,
-  const arma::mat& ort_mat,
-  const arma::cube& rest_arr, 
-  const arma::uvec& sign_ix,
-  const arma::cube& perm_sign_arr, 
-  const arma::uvec& news_info) {
+if(incl_rcpp){
+  Rcpp::cppFunction(depends = "RcppArmadillo",
+    'List search_rotations_cpp(
+    const arma::cube& chol_irf,
+    const arma::mat& ort_mat,
+    const arma::cube& rest_arr, 
+    const arma::uvec& sign_ix,
+    const arma::cube& perm_sign_arr, 
+    const arma::uvec& news_info) {
+    
+    // preallocation
+    arma::cube irf_temp(size(chol_irf));
+    arma::mat ort_temp(size(ort_mat)), dg_rest(sign_ix.n_elem, sign_ix.n_elem);
+    arma::colvec irf_vec(chol_irf.n_elem), irf_vec_sub(sign_ix.n_elem);
+    arma::colvec news_resp(chol_irf.n_slices), abs_news_resp(chol_irf.n_slices);
+    double news_rest = news_info[0], row_ix = news_info[1]-1, col_ix = news_info[2]-1;
+    
+    // subset restrictions and place them on main diagonal of diagonal matrix
+    arma::colvec rest_vec = arma::vectorise(rest_arr);
+    dg_rest.diag(0) = rest_vec.elem(sign_ix-1);
   
-  // preallocation
-  arma::cube irf_temp(size(chol_irf));
-  arma::mat ort_temp(size(ort_mat)), dg_rest(sign_ix.n_elem, sign_ix.n_elem);
-  arma::colvec irf_vec(chol_irf.n_elem), irf_vec_sub(sign_ix.n_elem);
-  arma::colvec news_resp(chol_irf.n_slices), abs_news_resp(chol_irf.n_slices);
-  double news_rest = news_info[0], row_ix = news_info[1]-1, col_ix = news_info[2]-1;
+    // initialization
+    bool rot_ok = false, perm_sign_complete = false;
+    int i = 0;
+    
+    while(!perm_sign_complete){
+    	// calculate rotated IRFs
+    	ort_temp = ort_mat*perm_sign_arr.slice(i);
+    	for(int j = 0; j < chol_irf.n_slices; j++){
+    		irf_temp.slice(j) = chol_irf.slice(j)*ort_temp;
+    	}
+    	// vectorize irf array
+    	irf_vec = arma::vectorise(irf_temp);
+    	// subset restricted elements into column vector
+    	irf_vec_sub = irf_vec.elem(sign_ix-1);
+    	// check restrictions
+    	rot_ok = min(dg_rest*irf_vec_sub) > 0;
+    	
+    	// news restriction
+    	if(sum(news_info)!=0 && rot_ok){
+        news_resp = irf_temp.subcube(arma::span(row_ix), arma::span(col_ix), arma::span());
+    		abs_news_resp = abs(news_resp);
+    		double max_ix = abs_news_resp.index_max();
+    		rot_ok = as_scalar(news_resp.row(max_ix)*news_rest) > 0;
+    	 }
+    	
+    	// check if the search for signed rotation is complete or continues
+    	perm_sign_complete = rot_ok || i == perm_sign_arr.n_slices-1;
+    	i++;
+    }
   
-  // subset restrictions and place them on main diagonal of diagonal matrix
-  arma::colvec rest_vec = arma::vectorise(rest_arr);
-  dg_rest.diag(0) = rest_vec.elem(sign_ix-1);
-
-  // initialization
-  bool rot_ok = false, perm_sign_complete = false;
-  int i = 0;
-  
-  while(!perm_sign_complete){
-  	// calculate rotated IRFs
-  	ort_temp = ort_mat*perm_sign_arr.slice(i);
-  	for(int j = 0; j < chol_irf.n_slices; j++){
-  		irf_temp.slice(j) = chol_irf.slice(j)*ort_temp;
-  	}
-  	// vectorize irf array
-  	irf_vec = arma::vectorise(irf_temp);
-  	// subset restricted elements into column vector
-  	irf_vec_sub = irf_vec.elem(sign_ix-1);
-  	// check restrictions
-  	rot_ok = min(dg_rest*irf_vec_sub) > 0;
-  	
-  	// news restriction
-  	if(sum(news_info)!=0 && rot_ok){
-      news_resp = irf_temp.subcube(arma::span(row_ix), arma::span(col_ix), arma::span());
-  		abs_news_resp = abs(news_resp);
-  		double max_ix = abs_news_resp.index_max();
-  		rot_ok = as_scalar(news_resp.row(max_ix)*news_rest) > 0;
-  	 }
-  	
-  	// check if the search for signed rotation is complete or continues
-  	perm_sign_complete = rot_ok || i == perm_sign_arr.n_slices-1;
-  	i++;
-  }
-
-  return List::create(Named("success") = rot_ok, Rcpp::Named("omat") = ort_temp, Rcpp::Named("irf_tmp") = irf_temp);
-  }'
-)
-
+    return List::create(Named("success") = rot_ok, Rcpp::Named("omat") = ort_temp, Rcpp::Named("irf_tmp") = irf_temp);
+    }'
+  )
+}
 robust_hmoms <- function(x, type = c("skew", "kurt")){
   
   nobs <- length(x)
