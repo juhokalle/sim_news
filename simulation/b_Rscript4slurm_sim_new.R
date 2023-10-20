@@ -46,7 +46,7 @@ params$MAXIT_CS_GAUSS = 500
 ## laplacian density
 params$IT_OPTIM_LAPLACE = 3
 params$USE_BFGS_LAPLACE = TRUE
-params$USE_NM_LAPLACE = TRUE
+params$USE_NM_LAPLACE = FALSE
 params$USE_CS_LAPLACE = FALSE
 params$MAXIT_BFGS_LAPLACE = 200 # default for derivative based methods
 params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
@@ -55,9 +55,9 @@ params$MAXIT_CS_LAPLACE = 500
 ## sgt density
 params$IT_OPTIM_SGT = 3
 params$USE_BFGS_SGT = TRUE
-params$USE_NM_SGT = TRUE
+params$USE_NM_SGT = FALSE
 params$USE_CS_SGT = FALSE
-params$MAXIT_BFGS_SGT = 200 # default for derivative based methods
+params$MAXIT_BFGS_SGT = 1e5 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
 

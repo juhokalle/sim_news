@@ -18,4 +18,4 @@ NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 mkdir -p $NEW_DIR
 module load R/4.2.1
 
-srun Rscript b_Rscript4slurm.R $NEW_DIR
+srun Rscript comp_opt_slurm.R $NEW_DIR
