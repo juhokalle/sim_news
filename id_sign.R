@@ -15,23 +15,23 @@ THRESHOLD_LB_AUX = 0.01
 THRESHOLD_C = 0.05
 N_LB_LAG = 24
 
-tt_empex <- readRDS("~/Documents/Rscripts/sim_news/local_data/tt_empex_20231011.rds")
+tt_empex <- readRDS("~/Documents/Rscripts/sim_news/local_data/tt_empex_20231023.rds")
 tt_irf <- tt_empex %>%
   mutate(lbl = names(data_list)) %>% 
   # Calculate shocks
-  mutate(res = pmap(., pmap_get_residuals_once)) %>% 
+  mutate(shock = pmap(., pmap_get_residuals_once)) %>% 
   # mutate(B_mat = map2(.x = params_deep_final,
   #                     .y = tmpl,
   #                     ~fill_tmpl_whf_rev(theta = .x,
   #                                        tmpl = .y)$B
   #                     )
   #        ) %>%
-  mutate(B_mat = map(.x = res, ~t(chol(cov(.x))))) %>%
-  mutate(shock = map2(.x = res,
-                      .y = B_mat,
-                      ~ t(solve(.y, t(.x)))
-                      )
-         ) %>%
+  # mutate(B_mat = map(.x = res, ~t(chol(cov(.x))))) %>%
+  # mutate(shock = map2(.x = res,
+  #                     .y = B_mat,
+  #                     ~ t(solve(.y, t(.x)))
+  #                     )
+  #        ) %>%
   # Test of normality pt. 1: Shapiro-Wilk
   mutate(sw = map(.x = shock,
                   ~ apply(X = .x, 
@@ -130,10 +130,11 @@ tt_irf <- tt_empex %>%
          ) %>%
   mutate(cor_sq_s_flag = map_lgl(cor_sq_s, ~ any(.x < THRESHOLD_C))) %>%
   # Model diagnostics checks
-  mutate(norm_flag = rowSums(across(contains("jb") & contains("sw") & contains("flag")))) %>% 
-  mutate(indep_flag = rowSums(across(contains("lb") & contains("flag")))) %>% 
-  mutate(cor_flag = rowSums(across(contains("cor") & contains("flag")))) %>%
-  mutate(norm_indep_flag = norm_flag + indep_flag + cor_flag)
+  # mutate(norm_flag = rowSums(across(contains("jb") & contains("sw") & contains("flag")))) %>% 
+  # mutate(indep_flag = rowSums(across(contains("lb") & contains("flag")))) %>% 
+  # mutate(cor_flag = rowSums(across(contains("cor") & contains("flag")))) %>%
+  # mutate(norm_indep_flag = norm_flag + indep_flag + cor_flag)
+  mutate(norm_indep_flag = rowSums(across(contains("flag"))))
 
 tt_irf <- tt_irf %>% 
   filter(norm_indep_flag%in%c(0,1)) %>%

@@ -22,40 +22,40 @@ params$NEW_DIR = args[5]
 # OPTIMIZATION PARAMS
 
 ## general
-params$RESTART_W_NOISE = 1
-params$PERM_INIT = 1
+params$RESTART_W_NOISE = 3
 params$FIX_INIT = FALSE
 params$IC <- TRUE
-params$penalty_prm = 100
+params$penalty_prm = 25
 params$AR_ORDER_MAX = 3
 params$MA_ORDER_MAX = 3
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
-params$USE_BFGS_GAUSS = TRUE
-params$USE_NM_GAUSS = TRUE
+params$USE_BFGS_GAUSS = FALSE
+params$USE_NM_GAUSS = FALSE
 params$USE_CS_GAUSS = FALSE
 params$MAXIT_BFGS_GAUSS = 200
 params$MAXIT_NM_GAUSS = 3000
 params$MAXIT_CS_GAUSS = 500
 
 ## laplacian density
-params$IT_OPTIM_LAPLACE = 3
-params$USE_BFGS_LAPLACE = TRUE
-params$USE_NM_LAPLACE = TRUE
-params$USE_CS_LAPLACE = FALSE
+params$IT_OPTIM_LAPLACE = 1
+params$USE_BFGS_LAPLACE = FALSE
+params$USE_NM_LAPLACE = FALSE
+params$USE_CS_LAPLACE = TRUE
 params$MAXIT_BFGS_LAPLACE = 200 # default for derivative based methods
 params$MAXIT_NM_LAPLACE = 3000 # default for NM is 500
-params$MAXIT_CS_LAPLACE = 500
+params$MAXIT_CS_LAPLACE = 1e5
 
 ## sgt density
 params$IT_OPTIM_SGT = 3
 params$USE_BFGS_SGT = TRUE
-params$USE_NM_SGT = TRUE
+params$USE_NM_SGT = FALSE
 params$USE_CS_SGT = FALSE
-params$MAXIT_BFGS_SGT = 200 # default for derivative based methods
+params$MAXIT_BFGS_SGT = 1e5 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
+params$FTOL_REL = 1e-9
 
 params$FILE_NAME_INPUT = "/home/juhokois/proj/sim_news/local_data/svarma_data_list.rds"
 params$USE_PARALLEL = FALSE
@@ -82,10 +82,10 @@ tt =
   # Join data sets and use two distributions for the estimation
   expand_grid(data_list = DATASET) %>% 
   # Select a subset of models to be estimated according to slurm task 
-  slice(split(x = 1:n(), 
-              f = cut(x = 1:n(), 
+  slice(split(x = 1:n(),
+              f = cut(x = 1:n(),
                       breaks = params$SLURM_ARRAY_TASK_MAX))[[params$IX_ARRAY_JOB]]
-        ) %>% 
+        ) %>%
   # Standardize data and save sd's for IRFs
   mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
@@ -102,9 +102,9 @@ tt =
   # estimate with a set of initial values
   mutate(theta_init = map2(.x = theta_init, 
                            .y = tmpl, 
-                           ~ perm_init(.x, params$PERM_INIT, .y)[[2]]
+                           ~ perm_init(.x, 500, .y, max_dist = TRUE)
                            )
-         ) %>% 
+         ) %>%
   # unnest_longer(theta_init) %>% 
   # mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
