@@ -3,7 +3,7 @@
 #SBATCH --job-name=mp_est
 #SBATCH -N 1
 #SBATCH -p short
-#SBATCH -t 02:30:00
+#SBATCH -t 03:30:00
 #SBATCH --ntasks=60
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=32000
@@ -12,7 +12,7 @@
 #SBATCH --array=1-405
 
 ROOT_PATH="/home/juhokois/proj/sim_news/local_data/jobid_"
-MANUALLY_ASSIGNED_ID=20231025
+MANUALLY_ASSIGNED_ID=20231026
 NEW_DIR="${ROOT_PATH}${MANUALLY_ASSIGNED_ID}"
 
 mkdir -p $NEW_DIR

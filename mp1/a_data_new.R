@@ -14,12 +14,14 @@ if(!file.exists("local_data/fred_md.rds")){
                     date_start = ym(197201)) %>%
     as_tibble() %>% 
     mutate(LIP = 100*log(INDPRO),
+           LIP_hp = c(rep(NA,2), hpfilter(LIP, lambda=14440, "one-sided")$cycle),
            LIP_dt = 100*residuals(lm(log(INDPRO) ~ I(1:n()))),
            LCPI = 100*log(CPIAUCSL),
            LCPI_dt = 100*residuals(lm(log(CPIAUCSL) ~ I(1:n()))),
+           LCPI_hp = c(rep(NA,2), hpfilter(LCPI, lambda=14440, "one-sided")$cycle),
            PI = c(rep(NA, 12), diff(LCPI, 12)),
-           DLCPI = 100*c(NA, diff(LCPI)),
-           DLIP = 100*c(NA, diff(LIP)),
+           DLCPI = c(NA, diff(LCPI)),
+           DLIP = c(NA, diff(LIP)),
            SP500 = c(rep(NA, 35), hfilter(100*log(`S&P 500`))$cycle)
            ) %>% 
     filter(date>ym(197212), date<ym(202001))
@@ -58,9 +60,9 @@ fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>%
 data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1", "MP_median"),
                  ~ fred_md %>%
                    filter(date>=ym(199401), date<=ym(201912)) %>%
-                   dplyr::select(LIP, PI, WX, all_of(.x)) %>%
+                   dplyr::select(LIP_hp, PI, WX, all_of(.x)) %>%
                    filter(complete.cases(.))
-                 )
+)
 
 names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22", "JK21")
 # data_list <- fred_md %>%
