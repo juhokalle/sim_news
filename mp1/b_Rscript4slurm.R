@@ -26,7 +26,7 @@ params$RESTART_W_NOISE = 3
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 25
-params$AR_ORDER_MAX = 3
+params$AR_ORDER_MAX = 12
 params$MA_ORDER_MAX = 3
 
 ## gaussian density
@@ -66,6 +66,7 @@ DIM_OUT = dim(DATASET[[1]])[2]
 params$DIM_OUT = DIM_OUT
 
 # Tibble with integer-valued parameters
+set.seed(123)
 tt = 
   # orders (p,q)
   expand_grid(p = 1:params$AR_ORDER_MAX,
@@ -78,14 +79,16 @@ tt =
          k = n_unst %% DIM_OUT) %>% 
   # filter(n_unst<=params$MA_ORDER_MAX*DIM_OUT/2) %>% 
   # Estimate SVAR(12) for comparison 
-  # bind_rows(c(p = 12, q = 0, n_unst = 0, n_st = 0, kappa = 0, k = 0)) %>% 
   # Join data sets and use two distributions for the estimation
   expand_grid(data_list = DATASET) %>% 
   # Select a subset of models to be estimated according to slurm task 
   slice(split(x = 1:n(),
-              f = cut(x = 1:n(),
+              f = cut(x = sample(1:n(), replace = FALSE),
                       breaks = params$SLURM_ARRAY_TASK_MAX))[[params$IX_ARRAY_JOB]]
-        ) %>%
+        )
+rm(.Random.seed, envir=globalenv())
+
+tt <- tt %>%
   # Standardize data and save sd's for IRFs
   mutate(sd_vec = map(.x = data_list, ~ apply(.x, 2, sd))) %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
