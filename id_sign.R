@@ -149,22 +149,22 @@ tt_irf <- tt_irf %>%
   # mutate(value_aic = value_final + punish_aic) %>% 
   # mutate(value_bic = value_final + punish_bic) %>%
   # group_by(shock_distr, lbl) %>%
-  # mutate(rk_aic = rank(value_aic),
-  #        rk_bic = rank(value_bic),
-  #        rk_mle = rank(value_final)) %>% 
-  # slice_min(rk_aic) %>%
-  # ungroup() %>%
-  # mutate(armamod = map2(.x = params_deep_final, .y = tmpl, ~armamod_whf(.x, .y))) %>% 
-  # mutate(irf = map(.x = armamod, ~pseries(lmfd(.x$polm_ar, .x$polm_ma), 48))) %>%
-  # mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, 48))) %>% 
-  # mutate(irf = map(.x = irf, ~ .x[1:2,,] %>% 
-  #                    apply(c(1,2), cumsum) %>%
-  #                    aperm(c(2,3,1)) %>%  
-  #                    abind::abind(.x[3:4,,], 
-  #                                 along = 1)
-  #                  )
-  #        ) %>% 
-  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y))
+# mutate(rk_aic = rank(value_aic),
+#        rk_bic = rank(value_bic),
+#        rk_mle = rank(value_final)) %>% 
+# slice_min(rk_aic) %>%
+# ungroup() %>%
+# mutate(armamod = map2(.x = params_deep_final, .y = tmpl, ~armamod_whf(.x, .y))) %>% 
+# mutate(irf = map(.x = armamod, ~pseries(lmfd(.x$polm_ar, .x$polm_ma), 48))) %>%
+# mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, 48))) %>% 
+# mutate(irf = map(.x = irf, ~ .x[1:2,,] %>% 
+#                    apply(c(1,2), cumsum) %>%
+#                    aperm(c(2,3,1)) %>%  
+#                    abind::abind(.x[3:4,,], 
+#                                 along = 1)
+#                  )
+#        ) %>% 
+mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y))
 
 rest_hor <- 3
 sgn_mat <- array(matrix(NA, 4, 4), c(4, 4, rest_hor))

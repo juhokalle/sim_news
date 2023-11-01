@@ -23,7 +23,7 @@ if(!file.exists("local_data/fred_md.rds")){
            DLCPI = c(NA, diff(LCPI)),
            DLIP = c(NA, diff(LIP)),
            SP500 = c(rep(NA, 35), hfilter(100*log(`S&P 500`))$cycle)
-           ) %>% 
+    ) %>% 
     filter(date>ym(197212), date<ym(202001))
   
   # Additional variables ####
