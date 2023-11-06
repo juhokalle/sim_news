@@ -111,7 +111,7 @@ tt <- tt %>%
   # unnest_longer(theta_init) %>% 
   # mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
-  expand_grid(shock_distr = c("skewed_t", "sgt")) %>% 
+  expand_grid(shock_distr = c("tdist", "skewed_t", "sgt")) %>% 
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev))
   # filter(!(q==0 & init_ix>1))

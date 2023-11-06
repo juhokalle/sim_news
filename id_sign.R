@@ -15,7 +15,7 @@ THRESHOLD_LB_AUX = 0.01
 THRESHOLD_C = 0.05
 N_LB_LAG = 24
 
-tt_empex <- readRDS("~/Documents/Rscripts/sim_news/local_data/tt_empex_20231025.rds")
+tt_empex <- readRDS("~/Documents/Rscripts/sim_news/local_data/tt_empex_20231106.rds")
 tt_irf <- tt_empex %>%
   mutate(lbl = names(data_list)) %>% 
   # Calculate shocks
@@ -135,36 +135,35 @@ tt_irf <- tt_empex %>%
   mutate(cor_flag = rowSums(across(contains("cor") & contains("flag")))) %>%
   mutate(norm_indep_flag = norm_flag + indep_flag + cor_flag)
 
-tt_irf <- tt_irf %>% 
-  filter(norm_indep_flag==1) %>%
-  mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~irf_whf(.x,.y,48))) %>% 
+tt_est <- tt_irf %>% 
+  filter(indep_flag == 0) %>%
   # filter gaussian processes out
-  # choose best model per shock and distr
-  # aic, bic
+  # choose best model per shock and distr: aic, bic
+  # ----------------------- #
   # mutate(nobs = map_dbl(data_list, ~nrow(.x))) %>%
-  # mutate(n_params = map_dbl(.x = params_deep_final,
-  #                           ~length(.x))) %>% 
-  # mutate(punish_aic = n_params * 2/nobs) %>% 
-  # mutate(punish_bic = n_params * log(nobs)/nobs) %>% 
-  # mutate(value_aic = value_final + punish_aic) %>% 
+  # mutate(n_params = map_dbl(.x = params_deep_final, ~length(.x))) %>%
+  # mutate(punish_aic = n_params * 2/nobs) %>%
+  # mutate(punish_bic = n_params * log(nobs)/nobs) %>%
+  # mutate(value_aic = value_final + punish_aic) %>%
   # mutate(value_bic = value_final + punish_bic) %>%
   # group_by(shock_distr, lbl) %>%
-# mutate(rk_aic = rank(value_aic),
-#        rk_bic = rank(value_bic),
-#        rk_mle = rank(value_final)) %>% 
-# slice_min(rk_aic) %>%
-# ungroup() %>%
-# mutate(armamod = map2(.x = params_deep_final, .y = tmpl, ~armamod_whf(.x, .y))) %>% 
-# mutate(irf = map(.x = armamod, ~pseries(lmfd(.x$polm_ar, .x$polm_ma), 48))) %>%
-# mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, 48))) %>% 
-# mutate(irf = map(.x = irf, ~ .x[1:2,,] %>% 
-#                    apply(c(1,2), cumsum) %>%
-#                    aperm(c(2,3,1)) %>%  
-#                    abind::abind(.x[3:4,,], 
-#                                 along = 1)
-#                  )
-#        ) %>% 
-mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y))
+  # mutate(rk_aic = rank(value_aic),
+  #        rk_bic = rank(value_bic),
+  #        rk_mle = rank(value_final)) %>%
+  # slice_min(rk_aic) %>%
+  # ungroup() %>%
+  # ----------------------- #
+  mutate(armamod = map2(.x = params_deep_final, .y = tmpl, ~armamod_whf(.x, .y))) %>%
+  mutate(irf = map(.x = armamod, ~pseries(lmfd(.x$polm_ar, .x$polm_ma), 48))) %>%
+  # mutate(irf = map2(.x = params_deep_final, .y = tmpl, ~ irf_whf(.x, .y, 48))) %>% 
+  # mutate(irf = map(.x = irf, ~ .x[1:2,,] %>% 
+  #                    apply(c(1,2), cumsum) %>%
+  #                    aperm(c(2,3,1)) %>%  
+  #                    abind::abind(.x[3:4,,], 
+  #                                 along = 1)
+  #                  )
+  #        ) %>% 
+  mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y))
 
 rest_hor <- 3
 sgn_mat <- array(matrix(NA, 4, 4), c(4, 4, rest_hor))
@@ -182,9 +181,7 @@ sgn_mat[3,4,1] <- 0 # FG -> FFR
 #                    ndraws = 1e3,
 #                    verbose = TRUE)
 
-param_list <- pmap(list(x = tt_irf$irf,
-                        y = tt_irf$res,
-                        z = tt_irf$B_mat),
+param_list <- pmap(with(tt_est, list(x = irf, y = res, z = B_mat)),
                    function(x, y, z) 
                      list(irf_arr = unclass(x),
                           emp_innov = y,

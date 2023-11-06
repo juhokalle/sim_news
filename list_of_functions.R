@@ -776,7 +776,23 @@ if(incl_rcpp){
     return List::create(Named("success") = rot_ok, Rcpp::Named("omat") = ort_temp, Rcpp::Named("irf_tmp") = irf_temp);
     }'
   )
+  
+  Rcpp::cppFunction(depends = "RcppArmadillo",
+                    'arma::cube irf_x(
+  const arma::cube& chol_irf,
+  const arma::mat& ort_mat) {
+  
+  arma::cube irf_temp(size(chol_irf));
+  
+	for(int j = 0; j < chol_irf.n_slices; j++){
+		irf_temp.slice(j) = chol_irf.slice(j)*ort_mat;
+	}
+  return irf_temp;
+  }'
+  )
 }
+
+
 robust_hmoms <- function(x, type = c("skew", "kurt")){
   
   nobs <- length(x)
