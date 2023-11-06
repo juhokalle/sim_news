@@ -69,7 +69,10 @@ data_list <- map(list(c("LIP", "LCPI", "FEDFUNDS"),
                    filter(complete.cases(.))
                  )
 
-names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22", "JK21")
+names(data_list) <- apply(X = expand.grid(c("ff", "wx"), 1:3), 
+                          MARGIN = 1,
+                          paste0, 
+                          collapse="") #c("BRW21", "BS22", "Swanson20", "GSS22", "JK21")
 # data_list <- fred_md %>%
 #   filter(date>=ym(199401), date<=ym(201912)) %>% 
 #   dplyr::select(LIP, LCPI, EBP, WX) %>% 
