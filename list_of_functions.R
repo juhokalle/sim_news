@@ -790,6 +790,7 @@ if(incl_rcpp){
   return irf_temp;
   }'
   )
+
 }
 
 
@@ -1160,46 +1161,75 @@ get_struc_mat <- function(model_type = c("dynamic", "static", "static_small", "r
 }
 
 # The system is of the form
-# K * x[t] = A * x[t-1] + B * E(x[t+1]|I[t])
-#                + H * w[t]
-# w[t] = D * w[t-1] + v[t]
+# A[0] * y[t] = A[1] * E(y[t+1]|I[t]) + A[2] * y[t-1] + \tilde{z}[t]
+# \tilde{z}[t] = phi_z * \tilde{z}[t-1] + G * z[t]
 
-solve_re_mod_bp <- function(Kmat, Amat, Bmat, Hmat, Dmat, eps_val = 1e-9){
+solve_re_mod_bp <- function(A0, A1, A2, phi_z, G, ant_lag, news_ix, eps_val = 1e-9){
   
   # Transform System to Canonical Form:
-  # x[t] = Ahat * x[t-1] + Bhat * E(x[t+1]|I[t]) 
-  #        + Hhat * w[t]
-  Ahat = solve(Kmat, Amat)
-  Bhat = solve(Kmat, Bmat)
-  Hhat = solve(Kmat, Hmat)
+  # x[t] = Q * E(x[t+1]|I[t]) + R * x[t-1] + A_{0}^{-1} * w[t]
+  # \tilde{z}[t] = phi_z * \tilde{z}[t-1] + G * z[t]
+  Qmat = solve(A0, A1)
+  Rmat = solve(A0, A2)
   
-  dim1 = dim(Amat)[1]
-  dim2 = dim(Amat)[2]
+  dim1 = dim(A0)[1]
   
-  # Compute Matrix C Using Brute-Force Iterative Procedure
-  Cmat = diag(dim1)       # Initial Condition
-  Fmat = diag(dim1)       # Initial Condition
+  # Compute Matrix H Using Brute-Force Iterative Procedure
+  Hmat = diag(dim1)       # Initial Condition
+  Qnew = diag(dim1)       # Initial Condition
   iter <- 1
   while(iter == 1 || crit1 >= eps_val || crit2 >= eps_val){
-    Fi = solve(diag(dim1)-Bhat%*%Cmat, Bhat)
-    Ci = solve(diag(dim1)-Bhat%*%Cmat, Ahat)
-    crit1 = max(abs(Fi-Fmat))
-    crit2 = max(abs(Ci-Cmat))
-    Cmat = Ci 
-    Fmat = Fi
+    # Candidate matrices
+    Qnew_i = solve(diag(dim1)-Qmat%*%Hmat, Qmat)
+    Hi = solve(diag(dim1)-Qmat%*%Hmat, Rmat)
+    # Convergence criteria
+    crit1 = max(abs(Qnew_i-Qnew))
+    crit2 = max(abs(Hi-Hmat))
+    # Update matrices
+    Qnew = Qnew_i
+    Hmat = Hi 
+    # Update iteration counter
     iter = iter+1
     if(iter > 500){ 
       stop("The brute-force iterative procedure did not converge after 500 iterations.")
     }
   }
+  # Obtain resulting matrices
+  Rnew <- solve(A0-A0%*%Qmat%*%Hmat)
+  # Below equals \sum_{i=0}^\infty Qnew^i * Rnew * {phi_z}^i
+  Pmat <- matrix(solve(diag(dim1^2) - t(phi_z)%x%Qnew, c(Rnew)), dim1, dim1)
+  ar_polm <- abind::abind(diag(dim1),
+                          -Pmat%*%phi_z%*%solve(Pmat) - Hmat, 
+                          Pmat%*%phi_z%*%solve(Pmat)%*%Hmat,
+                          along = 3)
+  ma_polm <- array(0, dim = c(dim(G), ant_lag+1))
   
-  Gmat <- solve(diag(dim1)-Bhat%*%Cmat, Hhat)
-  Pmat <- matrix(solve(diag(dim1^2) - t(Dmat)%x%Fmat, c(Gmat)), dim1, dim1)
-  var_polm <- abind::abind(diag(dim1),
-                           -Pmat%*%Dmat%*%solve(Pmat) - Cmat, 
-                           Pmat%*%Dmat%*%solve(Pmat)%*%Cmat,
-                           along = 3)
-  armamod(lmfd(a = polm(var_polm), b = diag(dim1)), sigma_L = Pmat)
+  if(ant_lag>0){
+    for(j in 0:ant_lag){
+      if(j==0){
+        ma_polm[, -news_ix, j+1] <- Pmat%*%G[,-news_ix]
+        ma_polm[, news_ix, j+1] <- mat_pow(Qnew, ant_lag)%*%Pmat%*%G[,news_ix]
+      } else{
+        m1 <- diag(dim1) - Pmat%*%phi_z%*%solve(Pmat)%*%Qnew
+        m2 <- mat_pow(Qnew, ant_lag-j)%*%Pmat%*%G[, news_ix]
+        ma_polm[, news_ix, j+1] <- m1%*%m2
+      }
+    }
+  } else{
+    ma_polm[,,1] <- Pmat
+  }
+  armamod(lmfd(a = ar_polm, b = ma_polm), sigma_L = diag(dim(G)[2]))
+}
+
+mat_pow <- function(x, pow){
+  
+  tmp <- diag(dim(x)[1])
+  if(pow>0){
+    for(j in 1:pow){
+      tmp <- x%*%tmp
+    }
+  }
+  tmp
 }
 
 plot_irfs <- function(){
