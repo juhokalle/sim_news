@@ -22,12 +22,12 @@ params$NEW_DIR = args[5]
 # OPTIMIZATION PARAMS
 
 ## general
-params$RESTART_W_NOISE = 3
+params$RESTART_W_NOISE = 1
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 25
-params$AR_ORDER_MAX = 12
-params$MA_ORDER_MAX = 3
+params$AR_ORDER_MAX = 6
+params$MA_ORDER_MAX = 6
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
@@ -55,7 +55,7 @@ params$USE_CS_SGT = FALSE
 params$MAXIT_BFGS_SGT = 1e5 # default for derivative based methods
 params$MAXIT_NM_SGT = 3000 # default for NM is 500
 params$MAXIT_CS_SGT = 500
-params$FTOL_REL = 1e-9
+params$FTOL_REL = 1e-7
 
 params$FILE_NAME_INPUT = "/home/juhokois/proj/sim_news/local_data/svarma_data_list.rds"
 params$USE_PARALLEL = FALSE
@@ -105,13 +105,13 @@ tt <- tt %>%
   # estimate with a set of initial values
   mutate(theta_init = map2(.x = theta_init, 
                            .y = tmpl, 
-                           ~ perm_init(.x, 500, .y, max_dist = TRUE)
+                           ~ perm_init(.x, 100, .y, max_dist = TRUE)
                            )
          ) %>%
   # unnest_longer(theta_init) %>% 
   # mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
-  expand_grid(shock_distr = c("tdist", "skewed_t", "sgt")) %>% 
+  expand_grid(shock_distr = "skewed_t") %>% #c("tdist", "skewed_t", "sgt")) %>% 
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev))
   # filter(!(q==0 & init_ix>1))

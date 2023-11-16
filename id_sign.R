@@ -15,7 +15,7 @@ THRESHOLD_LB_AUX = 0.01
 THRESHOLD_C = 0.05
 N_LB_LAG = 24
 
-tt_empex <- readRDS("~/Documents/Rscripts/sim_news/local_data/tt_empex_20231113.rds")
+tt_empex <- readRDS("~/Documents/Rscripts/sim_news/local_data/tt_empex_20231115.rds")
 tt_irf <- tt_empex %>%
   mutate(lbl = names(data_list)) %>% 
   # Calculate shocks
@@ -65,12 +65,12 @@ tt_irf <- tt_empex %>%
   mutate(lb_sq = map(.x = shock,
                      ~ apply(X = .x, 
                              MARGIN = 2, 
-                             FUN = function(x){ Box.test(x = x^2,
-                                                         lag = N_LB_LAG, 
-                                                         type = "Ljung-Box")$p.value}
+                             FUN = function(x){Box.test(x = x^2,
+                                                        lag = N_LB_LAG, 
+                                                        type = "Ljung-Box")$p.value}
                              )
                      )
-  ) %>% 
+         ) %>% 
   mutate(lb_sq_flag = map_lgl(lb_sq, ~any(.x < THRESHOLD_LB_AUX))) %>% 
   # Test of mutual rank correlation in X
   mutate(cor_p = map(.x = shock,
@@ -136,7 +136,10 @@ tt_irf <- tt_empex %>%
   mutate(norm_indep_flag = norm_flag + indep_flag + cor_flag)
 
 tt_est <- tt_irf %>% 
-  filter(indep_flag == 0) %>%
+  filter(norm_flag == 0,
+         indep_flag == 0,
+         cor_p_flag == 0,
+         cor_sq_p_flag == 0) %>%
   # filter gaussian processes out
   # choose best model per shock and distr: aic, bic
   # ----------------------- #
@@ -150,7 +153,7 @@ tt_est <- tt_irf %>%
   # mutate(rk_aic = rank(value_aic),
   #        rk_bic = rank(value_bic),
   #        rk_mle = rank(value_final)) %>%
-  # slice_min(rk_aic) %>%
+  # slice_min(value_aic) %>%
   # ungroup() %>%
   # ----------------------- #
   mutate(armamod = map2(.x = params_deep_final, .y = tmpl, ~armamod_whf(.x, .y))) %>%
@@ -165,7 +168,7 @@ tt_est <- tt_irf %>%
   #        ) %>% 
   mutate(irf = map2(.x = sd_vec, .y = irf, ~ diag(.x)%r%.y))
 
-rest_hor <- 3
+rest_hor <- 4
 sgn_mat <- array(matrix(NA, 4, 4), c(4, 4, rest_hor))
 sgn_mat[,1,1] <- c(1,1,1,NA) # Demand shock 
 sgn_mat[,2,1] <- c(-1,1,1,NA) # Supply shock
@@ -193,7 +196,7 @@ param_list <- pmap(with(tt_est, list(x = irf, y = res, z = B_mat)),
                                           threshold = 1.5),
                           ndraws = 1e2,
                           max_draws = 1e4,
-                          irf_cb = c(0.16, 0.84),
+                          irf_cb = c(0.05, 0.95),
                           replace_md = TRUE,
                           verbose = TRUE)
                    )
@@ -211,6 +214,3 @@ parallel::clusterEvalQ(cl, library("tidyverse"))
 parallel::clusterEvalQ(cl, library("svarmawhf"))
 test <- parallel::parLapplyLB(cl = cl, X = param_list, fun = par_fun)
 parallel::stopCluster(cl)
-
-irf_arr <- lapply(test[!ok], function(x) x$irf) %>% abind::abind(along=4)
-

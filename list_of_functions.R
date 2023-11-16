@@ -1039,37 +1039,52 @@ k_kappa2nunst <- function(q, dim_out, k, kappa){
 }
 
 # Tools related to structrual models
-get_struc_mat <- function(model_type = c("dynamic", "static", "static_small", "r_smooth"), 
+get_struc_mat <- function(model_type = c("hp16_OBES", 
+                                         "wolf20_AEJ", 
+                                         "kps13_JBES", 
+                                         "cs10_EJ"), 
                           param_list = NULL){
 
-  if(model_type == "dynamic"){
+  
+  # The system is of the form
+  # A[0] * y[t] = A[1] * E(y[t+1]|I[t]) + A[2] * y[t-1] + \tilde{z}[t]
+  # \tilde{z}[t] = phi_z * \tilde{z}[t-1] + G * z[t]
+  
+  list_out <- replicate(5, list(matrix(0,3,3)))
+  names(list_out) <- c("A0", "A1", "A2", "phi_z", "G")
+  if(model_type == "hp16_OBES"){
     
     if(is.null(param_list)) param_list <- list(beta = .99, kappa = .05, gamma = .5,
                                                delta_x = .1, alfa = .5, 
                                                tau_pi = 1.8, tau_x = .5, tau_r = .6, 
-                                               rho_pi = .5, rho_x = .5, rho_r = .5)
+                                               rho_pi = .5, rho_x = .5, rho_r = .5,
+                                               sigma_x = 1, sigma_pi = 1, sigma_r = 1)
     param_vec <- c("beta", "alfa", "kappa", "gamma", "delta_x", 
                    "tau_x", "tau_pi", "tau_r", 
-                   "rho_x", "rho_pi", "rho_r")
+                   "rho_x", "rho_pi", "rho_r",
+                   "sigma_x", "sigma_pi", "sigma_r")
     check_vec <- param_vec%in%names(param_list)
     if(!all(check_vec)) stop("The following parameters are missing: ", 
                              paste(param_vec[!check_vec], collapse = ", "))
+     
+    list_out$A0[] <- with(param_list, c(1, -kappa, -tau_x*(1-tau_r),
+                                        0, 1, -tau_pi*(1-tau_r),
+                                        delta_x, 0, 1)
+                          )
+    list_out$A1[] <- with(param_list, c(gamma, 0, 0,
+                                        delta_x, beta/(1+alfa*beta), 0,
+                                        0, 0, 0)
+                          )
+    list_out$A2[] <- with(param_list, c(1-gamma, 0, 0,
+                                        0, alfa/(1+alfa*beta), 0,
+                                        0, 0, tau_r)
+                          )
     
-    Kmat <- with(param_list, matrix(c(1, -kappa, -tau_x*(1-tau_r),
-                                      0, 1, -tau_pi*(1-tau_r),
-                                      delta_x, 0, 1), 3, 3))
+    diag(list_out$phi_z) <- with(param_list, c(rho_x, rho_pi, rho_r))
+    diag(list_out$G) <- with(param_list, c(sigma_x, sigma_pi, sigma_r))
     
-    Amat <- with(param_list, matrix(c(1-gamma, 0, 0,
-                                      0, alfa/(1+alfa*beta), 0,
-                                      0, 0, tau_r), 3, 3))
-    Bmat <- with(param_list, matrix(c(gamma, 0, 0,
-                                      delta_x, beta/(1+alfa*beta), 0,
-                                      0, 0, 0), 3, 3))
-    Hmat <- diag(3)
     
-    Dmat <- with(param_list, diag(c(rho_x, rho_pi, rho_r)))
-    
-  } else if(model_type == "static"){
+  } else if(model_type == "wolf20_AEJ"){
     
     if(is.null(param_list)) param_list <- list(beta = 0.995, kappa = 0.005,
                                                 phi_pi = 1.5, phi_y = 0.1,
@@ -1081,21 +1096,19 @@ get_struc_mat <- function(model_type = c("dynamic", "static", "static_small", "r
     if(!all(check_vec)) stop("The following parameters are missing: ", 
                              paste(param_vec[!check_vec], collapse = ", "))
     
-    Kmat <- with(param_list, matrix(c(1, -kappa, -phi_y,
-                                      0, 1, -phi_pi,
-                                      1, 0, 1), 3, 3))
+    list_out$A0[] <- with(param_list, c(1, -kappa, -phi_y,
+                                        0, 1, -phi_pi,
+                                        1, 0, 1)
+                          )
     
-    Amat <- matrix(0, 3, 3)
+    list_out$A1[] <- with(param_list, c(1, 0, 0,
+                                        1, beta, 0,
+                                        0, 0, 0)
+                          )
+    diag(list_out$G) <- with(param_list, c(sigma_d, sigma_s, sigma_m))
     
-    Bmat <- with(param_list, matrix(c(1, 0, 0,
-                                      1, beta, 0,
-                                      0, 0, 0), 3, 3))
-    
-    Hmat <- with(param_list, diag(c(sigma_d, sigma_s, sigma_m)))
-    
-    Dmat <- matrix(0, 3, 3)
   
-  } else if(model_type == "static_small"){
+  } else if(model_type == "kps13_JBES"){
     
     if(is.null(param_list)) param_list <- list(sigma = .4, gamma = .75, psi = 2, beta = 0.995,
                                                sigma_d = 1.6, sigma_s = 0.95, sigma_m = 0.23)
@@ -1110,22 +1123,19 @@ get_struc_mat <- function(model_type = c("dynamic", "static", "static_small", "r
                              paste(param_vec[!check_vec], collapse = ", "))
     
     
-    Kmat <- with(param_list, matrix(c(1, -gamma, 0,
-                                      0, 1, -psi,
-                                      sigma, 0, 1), 3, 3))
-    Amat <- matrix(0, 3, 3)
+    list_out$A0[] <- with(param_list, c(1, -gamma, 0,
+                                        0, 1, -psi,
+                                        sigma, 0, 1)
+                          )
     
-    Bmat <- with(param_list, matrix(c(1, 0, 0,
-                                      sigma, beta, 0,
-                                      0, 0, 0),
-                                    3, 3)
-                 )
+    list_out$A1[] <- with(param_list, c(1, 0, 0,
+                                        sigma, beta, 0,
+                                        0, 0, 0)
+                          )
     
-    Hmat <- with(param_list, diag(c(sigma_d, sigma_s, sigma_m)))
+    diag(list_out$G) <- with(param_list, c(sigma_d, sigma_s, sigma_m))
     
-    Dmat <- matrix(0,3,3)
-    
-  } else if(model_type == "r_smooth"){
+  } else if(model_type == "cs10_EJ"){
     
     if(is.null(param_list)) param_list <- list(beta = .99, kappa = .75, tau = 2.08^-1,
                                                psi_pi = 2.19, psi_x = 0.3, rho_R = 0.84,
@@ -1138,40 +1148,70 @@ get_struc_mat <- function(model_type = c("dynamic", "static", "static_small", "r
     if(!all(check_vec)) stop("The following parameters are missing: ", 
                              paste(param_vec[!check_vec], collapse = ", "))
     
-    Kmat <- with(param_list, matrix(c(1, -kappa, -(1-rho_R)*psi_x,
-                                      0, 1, 0,
-                                      tau, 0, 1), 3, 3))
+    list_out$A0[] <- with(param_list, c(1, -kappa, -(1-rho_R)*psi_x,
+                                        0, 1, 0,
+                                        tau, 0, 1))
     
-    Amat <- with(param_list, matrix(c(rep(0,8), rho_R), 3, 3))
+    list_out$A1[] <- with(param_list, c(1, 0, 0,
+                                        tau, beta, (1-rho_R)*psi_pi, 
+                                        0, 0, 0))
     
-    Bmat <- with(param_list, matrix(c(1, 0, 0,
-                                      tau, beta, (1-rho_R)*psi_pi, 
-                                      0, 0, 0), 3, 3))
+    list_out$A2[] <- with(param_list, c(rep(0,8), rho_R))
     
-    Hmat <- with(param_list, matrix(c(sigma_g, 0, 0, 
-                                      0, -kappa*sigma_z, -(1-rho_R)*psi_x*sigma_z,
-                                      0, 0, sigma_R), 3, 3))
-    Dmat <- matrix(0, 3, 3)
+    list_out$G[] <- with(param_list, c(sigma_g, 0, 0, 
+                                       0, -kappa*sigma_z, -(1-rho_R)*psi_x*sigma_z,
+                                       0, 0, sigma_R))
     
+  } else if(model_type == "mt12_JMCB"){
+    
+    if(is.null(param_list)) param_list <- list(sigma = 1, beta = .99, omega = 2,
+                                               alpha = .898, rho = .877, 
+                                               chi_pi = 1.529, chi_x = .359,
+                                               phi = .909, gamma = .88,
+                                               rho_g = .426, rho_mu = .037, rho_nu = .236,
+                                               sigma_g = .275, sigma_mu = .157, sigma_nu = .385)
+    
+    param_vec <- c("sigma", "beta", "omega",
+                   "alpha", "rho",
+                   "chi_pi", "chi_x", 
+                   "phi", "gamma",
+                   "rho_g", "rho_mu", "rho_nu",
+                   "sigma_g", "sigma_mu", "sigma_nu")
+    check_vec <- param_vec%in%names(param_list)
+    if(!all(check_vec)) stop("The following parameters are missing: ", 
+                             paste(param_vec[!check_vec], collapse = ", "))
+    
+    xi <- with(param_list, (1-alpha)*(1-alpha*beta)/alpha)
+    list_out$A0[] <- with(param_list, c(1, -xi*(omega+1/(sigma*(1-phi)))/(1+beta*gamma), -(1-rho)*chi_x,
+                                        0, 1, -(1-rho)*chi_pi,
+                                        sigma*(1-phi)/(1+phi), 0, 1))
+    list_out$A1[] <- with(param_list, c(1/(1+phi), 0, 0,
+                                        sigma*(1-phi)/(1+phi), beta/(1+beta*gamma), 0,
+                                        0,0,0))
+    list_out$A2[] <- with(param_list, c(phi/(1+phi), -xi*phi/((1+beta*gamma)*(1-phi)*sigma), 0,
+                                        0, gamma/(1+beta*gamma), 0,
+                                        0, 0, rho))
+    diag(list_out$phi_z) <- with(param_list, c(rho_g, rho_mu, rho_nu))
+    diag(list_out$G) <- with(param_list, c(sigma_g, sigma_mu, sigma_nu))
   } else{
     stop("Supply a valid model type.")
   }
   
-  list(Kmat=Kmat, Amat=Amat, Bmat=Bmat, Hmat=Hmat, Dmat=Dmat)
+  list_out
 }
 
 # The system is of the form
 # A[0] * y[t] = A[1] * E(y[t+1]|I[t]) + A[2] * y[t-1] + \tilde{z}[t]
 # \tilde{z}[t] = phi_z * \tilde{z}[t-1] + G * z[t]
 
-solve_re_mod_bp <- function(A0, A1, A2, phi_z, G, ant_lag, news_ix, eps_val = 1e-9){
+solve_re_mod_bp <- function(A0, A1, A2, eps_val = 1e-9){
   
   # Transform System to Canonical Form:
   # x[t] = Q * E(x[t+1]|I[t]) + R * x[t-1] + A_{0}^{-1} * w[t]
   # \tilde{z}[t] = phi_z * \tilde{z}[t-1] + G * z[t]
   Qmat = solve(A0, A1)
   Rmat = solve(A0, A2)
-  
+  if(any(abs(eigen(Qmat, only.values = TRUE)$val)>1)) stop("Unstable matrix Q")
   dim1 = dim(A0)[1]
   
   # Compute Matrix H Using Brute-Force Iterative Procedure
@@ -1194,13 +1234,22 @@ solve_re_mod_bp <- function(A0, A1, A2, phi_z, G, ant_lag, news_ix, eps_val = 1e
       stop("The brute-force iterative procedure did not converge after 500 iterations.")
     }
   }
+  if(any(abs(eigen(Hmat, only.values = TRUE)$val)>1)) stop("Unstable matrix Hmat")
+  if(any(abs(eigen(Qnew, only.values = TRUE)$val)>1)) stop("Unstable matrix Qcal")
+  
   # Obtain resulting matrices
   Rnew <- solve(A0-A0%*%Qmat%*%Hmat)
+  list(Qcal = Qnew, Rcal = Rnew, H = Hmat)
+}
+
+lre2varma <- function(Qcal, Rcal, H, phi_z, G, ant_lag, news_ix){
+  
+  dim1 <- dim(Qcal)[1]
   # Below equals \sum_{i=0}^\infty Qnew^i * Rnew * {phi_z}^i
-  Pmat <- matrix(solve(diag(dim1^2) - t(phi_z)%x%Qnew, c(Rnew)), dim1, dim1)
+  Pmat <- matrix(solve(diag(dim1^2) - t(phi_z)%x%Qcal, c(Rcal)), dim1, dim1)
   ar_polm <- abind::abind(diag(dim1),
-                          -Pmat%*%phi_z%*%solve(Pmat) - Hmat, 
-                          Pmat%*%phi_z%*%solve(Pmat)%*%Hmat,
+                          -Pmat%*%phi_z%*%solve(Pmat) - H, 
+                          Pmat%*%phi_z%*%solve(Pmat)%*%H,
                           along = 3)
   ma_polm <- array(0, dim = c(dim(G), ant_lag+1))
   
@@ -1208,10 +1257,10 @@ solve_re_mod_bp <- function(A0, A1, A2, phi_z, G, ant_lag, news_ix, eps_val = 1e
     for(j in 0:ant_lag){
       if(j==0){
         ma_polm[, -news_ix, j+1] <- Pmat%*%G[,-news_ix]
-        ma_polm[, news_ix, j+1] <- mat_pow(Qnew, ant_lag)%*%Pmat%*%G[,news_ix]
+        ma_polm[, news_ix, j+1] <- mat_pow(Qcal, ant_lag)%*%Pmat%*%G[,news_ix]
       } else{
-        m1 <- diag(dim1) - Pmat%*%phi_z%*%solve(Pmat)%*%Qnew
-        m2 <- mat_pow(Qnew, ant_lag-j)%*%Pmat%*%G[, news_ix]
+        m1 <- diag(dim1) - Pmat%*%phi_z%*%solve(Pmat)%*%Qcal
+        m2 <- mat_pow(Qcal, ant_lag-j)%*%Pmat%*%G[, news_ix]
         ma_polm[, news_ix, j+1] <- m1%*%m2
       }
     }
