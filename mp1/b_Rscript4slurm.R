@@ -27,7 +27,7 @@ params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 25
 params$AR_ORDER_MAX = 6
-params$MA_ORDER_MAX = 6
+params$MA_ORDER_MAX = 3
 
 ## gaussian density
 params$IT_OPTIM_GAUSS = 1
@@ -69,7 +69,7 @@ params$DIM_OUT = DIM_OUT
 set.seed(123)
 tt = 
   # orders (p,q)
-  expand_grid(p = 1:params$AR_ORDER_MAX,
+  expand_grid(p = 12,
               q = 1:params$MA_ORDER_MAX) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
@@ -111,7 +111,7 @@ tt <- tt %>%
   # unnest_longer(theta_init) %>% 
   # mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
-  expand_grid(shock_distr = "skewed_t") %>% #c("tdist", "skewed_t", "sgt")) %>% 
+  expand_grid(shock_distr = c("tdist", "skewed_t", "sgt")) %>% 
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev))
   # filter(!(q==0 & init_ix>1))

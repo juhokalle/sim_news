@@ -443,7 +443,8 @@ choose_perm_sign <- function(target_mat, cand_mat, type = c("frob", "dg_abs", "m
   rt_opt
 }
 
-id_sign <- function(chol_irf, ndraws=1e3, sign_rest, max_draws=1e5){
+id_sign <- function(chol_irf, ndraws=1e3, sign_rest, max_draws=1e5)
+{
   irf_dim <- if(length(dim(chol_irf))==2) c(dim(chol_irf), 1) else dim(chol_irf)
   dim(chol_irf) <- irf_dim
   nvar <- irf_dim[1]
@@ -599,7 +600,8 @@ id_mixed_new <- function(irf_arr,
                          max_draws = ndraws*1e3,
                          irf_cb = c(0.14, 0.86),
                          replace_md = TRUE,
-                         verbose = FALSE){
+                         verbose = FALSE)
+{
   # Extract IRF dimension
   irf_dim <- dim(irf_arr)
   # Number of variables
@@ -794,7 +796,8 @@ if(incl_rcpp){
 }
 
 
-robust_hmoms <- function(x, type = c("skew", "kurt")){
+robust_hmoms <- function(x, type = c("skew", "kurt"))
+{
   
   nobs <- length(x)
   xsort <- sort(x)
@@ -1042,8 +1045,10 @@ k_kappa2nunst <- function(q, dim_out, k, kappa){
 get_struc_mat <- function(model_type = c("hp16_OBES", 
                                          "wolf20_AEJ", 
                                          "kps13_JBES", 
-                                         "cs10_EJ"), 
-                          param_list = NULL){
+                                         "cs10_EJ",
+                                         "mt12_JMCB"), 
+                          param_list = NULL)
+{
 
   
   # The system is of the form
@@ -1204,7 +1209,8 @@ get_struc_mat <- function(model_type = c("hp16_OBES",
 # A[0] * y[t] = A[1] * E(y[t+1]|I[t]) + A[2] * y[t-1] + \tilde{z}[t]
 # \tilde{z}[t] = phi_z * \tilde{z}[t-1] + G * z[t]
 
-solve_re_mod_bp <- function(A0, A1, A2, eps_val = 1e-9){
+solve_re_mod_bp <- function(A0, A1, A2, eps_val = 1e-9)
+{
   
   # Transform System to Canonical Form:
   # x[t] = Q * E(x[t+1]|I[t]) + R * x[t-1] + A_{0}^{-1} * w[t]
@@ -1242,7 +1248,8 @@ solve_re_mod_bp <- function(A0, A1, A2, eps_val = 1e-9){
   list(Qcal = Qnew, Rcal = Rnew, H = Hmat)
 }
 
-lre2varma <- function(Qcal, Rcal, H, phi_z, G, ant_lag, news_ix){
+lre2varma <- function(Qcal, Rcal, H, phi_z, G, ant_lag, news_ix)
+{
   
   dim1 <- dim(Qcal)[1]
   # Below equals \sum_{i=0}^\infty Qnew^i * Rnew * {phi_z}^i
@@ -1417,7 +1424,10 @@ get_perm_sign_mat <- function(nvar, free_perm = 1:nvar, free_sign = 1:nvar){
 }
 
 
-fry_pagan_mt <- function(irf_arr, rest_mat = NULL, ct_hor = dim(irf_arr)[3], qt = 0.5){
+fry_pagan_mt <- function(irf_arr, 
+                         rest_mat = NULL, 
+                         ct_hor = dim(irf_arr)[3], 
+                         qt = 0.5){
 
   # Check if the median target is calculated only wrt to the restricted shocks
   if(is.null(rest_mat)){

@@ -60,7 +60,9 @@ fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>%
 data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1", "MP_median"),
                  ~ fred_md %>%
                    filter(date>=ym(199401), date<=ym(201912)) %>%
-                   dplyr::select(c("LIP", "LCPI", "EBP", "WX"), all_of(.x)) %>%
+                   dplyr::select(c("LIP_hp", "DLCPI", "WX"), all_of(.x)) %>%
+                   # rename_with(.cols = 4, ~"MPR") %>%
+                   # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>%
                    filter(complete.cases(.))
                  )
 
