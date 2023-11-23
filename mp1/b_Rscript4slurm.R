@@ -26,7 +26,7 @@ params$RESTART_W_NOISE = 1
 params$FIX_INIT = FALSE
 params$IC <- TRUE
 params$penalty_prm = 25
-params$AR_ORDER_MAX = 6
+params$AR_ORDER_MAX = 12
 params$MA_ORDER_MAX = 3
 
 ## gaussian density
@@ -69,7 +69,7 @@ params$DIM_OUT = DIM_OUT
 set.seed(123)
 tt = 
   # orders (p,q)
-  expand_grid(p = 12,
+  expand_grid(p = params$AR_ORDER_MAX,
               q = 1:params$MA_ORDER_MAX) %>% 
   # number of unstable zeros
   mutate(n_unst = map(q, ~0:(DIM_OUT*.x))) %>% 
