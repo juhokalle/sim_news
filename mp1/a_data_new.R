@@ -22,7 +22,8 @@ if(!file.exists("local_data/fred_md.rds")){
            PI = c(rep(NA, 12), diff(LCPI, 12)),
            DLCPI = c(NA, diff(LCPI)),
            DLIP = c(NA, diff(LIP)),
-           SP500 = c(rep(NA, 35), hfilter(100*log(`S&P 500`))$cycle)
+           SP500 = 100*log(`S&P 500`)
+           # SP500 = c(rep(NA, 35), hfilter(100*log(`S&P 500`))$cycle)
     ) %>% 
     filter(date>ym(197212), date<ym(202001))
   
@@ -60,7 +61,7 @@ fred_md <- list(fred_md, WX, SSR, readRDS("local_data/shock_tbl.rds")) %>%
 data_list <- map(c("BRW_monthly", "MPS_ORTH", "ffr_fac", "MP1", "MP_median", "t_fac"),
                  ~ fred_md %>%
                    filter(date>=ym(199401), date<=ym(201912)) %>%
-                   dplyr::select(c("LIP", "LCPI", "WX"), all_of(.x)) %>%
+                   dplyr::select(c("LIP", "LCPI", "SP500", "WX"), all_of(.x)) %>%
                    # rename_with(.cols = 4, ~"MPR") %>%
                    # mutate(MPR = cumsum(coalesce(MPR, 0)) + MPR*0) %>%
                    filter(complete.cases(.))
@@ -72,6 +73,6 @@ names(data_list) <- c("BRW21", "BS22", "Swanson20", "GSS22", "JK21", "GSS22b")
 #   dplyr::select(LIP, LCPI, EBP, WX) %>% 
 #   list()
 # save data
-data_list <- data_list[c(3,4,6)]
+data_list <- data_list[4]
 saveRDS(data_list, "local_data/svarma_data_list.rds")
 

@@ -9,7 +9,7 @@
 #SBATCH --mem=32000
 #SBATCH -o rro%a.out
 #SBATCH -e rre%a.err
-#SBATCH --array=1-81
+#SBATCH --array=1-27
 
 ROOT_PATH="/home/juhokois/proj/sim_news/local_data/jobid_"
 MANUALLY_ASSIGNED_ID=20231123
