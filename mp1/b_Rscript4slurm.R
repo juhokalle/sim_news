@@ -85,7 +85,7 @@ tt =
   slice(split(x = 1:n(),
               f = cut(x = sample(1:n(), replace = FALSE),
                       breaks = params$SLURM_ARRAY_TASK_MAX))[[params$IX_ARRAY_JOB]]
-        )
+  )
 rm(.Random.seed, envir=globalenv())
 
 tt <- tt %>%
@@ -94,27 +94,27 @@ tt <- tt %>%
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev)) %>% 
   mutate(data_list = map(.x = data_list, 
                          ~ apply(.x, 2, function(x) (x - mean(x))/sd(x))
-                         )
-         ) %>%
+  )
+  ) %>%
   # generate initial values and likelihood functions (we can use the same template for initial values and likelihood fct bc both have no parameters for density)
   mutate(theta_init = map2(.x = data_list, 
                            .y = tmpl, 
                            ~ get_init_armamod_whf_random(.x, .y)
-                           )
-         ) %>%
+  )
+  ) %>%
   # estimate with a set of initial values
   mutate(theta_init = map2(.x = theta_init, 
                            .y = tmpl, 
                            ~ perm_init(.x, 100, .y, max_dist = TRUE)
-                           )
-         ) %>%
+  )
+  ) %>%
   # unnest_longer(theta_init) %>% 
   # mutate(init_ix = rep(1:(params$PERM_INIT+1), n()/(params$PERM_INIT+1))) %>% 
   # update template
   expand_grid(shock_distr = c("tdist", "skewed_t", "sgt")) %>% 
   # template
   mutate(tmpl = pmap(., pmap_tmpl_whf_rev))
-  # filter(!(q==0 & init_ix>1))
+# filter(!(q==0 & init_ix>1))
 
 # Parallel setup ####
 tt_optim_parallel = tt %>% 
@@ -145,9 +145,9 @@ tibble_out =
   unnest_wider(results_list) %>%
   unnest_wider(input_integerparams) %>% 
   mutate(tt)
-  # group_by(p, q, kappa, k, shock_distr, data_list) %>%
-  # slice_min(value_final) %>%
-  # ungroup()
+# group_by(p, q, kappa, k, shock_distr, data_list) %>%
+# slice_min(value_final) %>%
+# ungroup()
 
 tibble_id <- paste0("/tibble_",
                     paste(sample(0:9, 5, replace = TRUE), collapse = ""), 

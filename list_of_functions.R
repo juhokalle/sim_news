@@ -1,4 +1,4 @@
-incl_rcpp <- FALSE
+incl_rcpp <- TRUE
 
 # SIMULATIONS
 simu_y = function(model, n.obs, rand.gen = stats::rnorm, n.burnin = 0, ...)
@@ -215,7 +215,8 @@ optim_zr <- function(input_mat, zr_ix, opt_it = TRUE)
   }
 }
 
-zero_rest <- function(target_mat, zero_ix){
+zero_rest <- function(target_mat, zero_ix)
+{
   
   rot_angle <- ifelse(zero_ix[2]==1, 
                       -target_mat[zero_ix[1], zero_ix[2]+1],
@@ -597,6 +598,7 @@ id_mixed_new <- function(irf_arr,
                          news_rest = NULL,
                          rest_mom = NULL,
                          ndraws = 1e3,
+                         sub_max = 1e4,
                          max_draws = ndraws*1e3,
                          irf_cb = c(0.14, 0.86),
                          replace_md = TRUE,
@@ -606,7 +608,7 @@ id_mixed_new <- function(irf_arr,
   irf_dim <- dim(irf_arr)
   # Number of variables
   nvar <- irf_dim[1]
-  # Obtain orthogonalized IRFs
+  # Obtain IRFs to orthogonal shocks
   if(is.character(w_mat) && w_mat=="chol"){
     w_mat <- t(chol(cov(emp_innov)))
   } else if(is.character(w_mat) && w_mat=="eig_sqrt"){
@@ -620,22 +622,78 @@ id_mixed_new <- function(irf_arr,
   # Initialize output to arrays: IRFs and resulting orthogonal matrices
   imp_arr <- array(NA, c(irf_dim, ndraws))
   shock_arr <- array(NA, c(dim(emp_innov), ndraws))
-  
-  # Signed permutation matrices
-  perm_sign_list <- get_perm_sign_mat(nvar) %>% abind::abind(along = 3) %>% list()
-  
-  # Subsetting index of elements with only sign restrictions, i.e. length of the tested prms
-  sign_ix <- which(rest_mat!=0)
 
+  # The search starts from the shock with most restrictions
+  sort_vec <- order(apply(rest_mat, 2, function(x) sum(x!=0, na.rm = TRUE)), 
+                    decreasing = TRUE)
+  rest_mat <- rest_mat[,sort_vec,,drop=FALSE]
+  
   # Obtain zero restrictions
   zr_ix <- which(rest_mat==0, arr.ind = TRUE)[,1:2]
   zr_yes <- length(zr_ix)!=0
   
-  # For checking sign reversals in the two columns multiplied by the Givens mat
-  if(zr_yes){
-    tmp_ix <- ifelse(zr_ix[2]==1, zr_ix[2], zr_ix[2]-1)
-    perm_sign_list[[2]] <- get_perm_sign_mat(nvar, 0, tmp_ix:(tmp_ix+1)) %>% 
-      abind::abind(along = 3)
+  # Reorder the news restriction
+  if(!is.null(news_rest)) news_rest[3] <- which(sort_vec==news_rest[3])
+  
+  # Initialize argument lists
+  arg_list_std <- list(chol_irf = chol_irf, 
+                       rest_arr = NULL,
+                       sign_ix = NULL, 
+                       perm_sign_arr = NULL,
+                       news_info = c(0,0,0),
+                       ort_mat = NULL)
+  arg_list_std <- rep(list(arg_list_std), nvar-1)
+  
+  for(j in 1:(nvar-1)){
+    
+    # Collect arguments of the cpp function to lists
+    rest_tmp <- array(NA, dim = dim(rest_mat))
+    select_rest <- if(j<nvar-1) j else j:(j+1)
+    rest_tmp[,select_rest,] <- rest_mat[,select_rest,]
+    arg_list_std[[j]]$rest_arr <- rest_tmp
+    arg_list_std[[j]]$sign_ix <- which(rest_tmp!=0)
+    arg_list_std[[j]]$perm_sign_arr <- get_perm_sign_mat(nvar = nvar, 
+                                                         free_perm = j:nvar, 
+                                                         free_sign = j:nvar) 
+    arg_list_std[[j]]$perm_sign_arr <- abind::abind(arg_list_std[[j]]$perm_sign_arr,
+                                                    along = 3)
+    
+    # Argument list for zero restriction
+    if(zr_yes){ 
+      # Does the column contain zero restriction?
+      zr_j <- zr_ix[2] == j || (j == nvar-1 && zr_ix[2] == nvar)
+      if(zr_j){
+        givens_ix <- ifelse(zr_ix[2]==1, zr_ix[2], zr_ix[2]-1)
+        rest_tmp <- array(NA, dim = dim(rest_mat))
+        rest_tmp[,givens_ix:(givens_ix+1),] <- rest_mat[,givens_ix:(givens_ix+1),]
+        arg_list_zero <- arg_list_std[[j]]
+        arg_list_zero$rest_arr <- rest_tmp
+        arg_list_zero$perm_sign_arr <- get_perm_sign_mat(nvar = nvar, 
+                                                         free_perm = 0, 
+                                                         free_sign = givens_ix:(givens_ix+1)) 
+        arg_list_zero$perm_sign_arr <- abind::abind(arg_list_zero$perm_sign_arr, 
+                                                    along = 3)
+        arg_list_zero$sign_ix <- which(rest_tmp!=0)
+      }
+    }
+    # Argument list for news normalization
+    if(!is.null(news_rest)){ 
+      # Is the column subject to a news normalization?
+      news_j <- news_rest[3] == j || (j == nvar-1 && news_rest[3] == nvar)
+      if(news_j){
+        rest_tmp <- array(NA, dim = dim(rest_mat))
+        rest_tmp[,news_rest[3],] <- rest_mat[,news_rest[3],]
+        arg_list_news <- arg_list_std[[j]]
+        arg_list_news$rest_arr <- rest_tmp
+        arg_list_news$perm_sign_arr <- get_perm_sign_mat(nvar = nvar, 
+                                                         free_perm = 0, 
+                                                         free_sign = news_rest[3]) 
+        arg_list_news$perm_sign_arr <- abind::abind(arg_list_news$perm_sign_arr, 
+                                                    along=3)
+        arg_list_news$news_info <- news_rest
+        arg_list_news$sign_ix <- which(rest_tmp!=0)
+      }
+    }
   }
 
   # Initialization
@@ -646,51 +704,74 @@ id_mixed_new <- function(irf_arr,
   # Print progress bar
   if(verbose) cat("Search in progress")
   while(!search_complete){
-    # Generate random orth. matrix using QR decomp
-    qr_obj <- qr(matrix(rnorm(nvar^2), nvar, nvar))
-    qr_q <- qr.Q(qr_obj)
-    qr_r <- qr.R(qr_obj)
-    # Ensure uniqueness
-    ort_mat <- qr_q%*%diag(sign(diag(qr_r)))
-    # Collect arguments for cpp function
-    arg_list <- list(chol_irf = chol_irf, 
-                     ort_mat = ort_mat, 
-                     rest_arr = rest_mat, 
-                     sign_ix = sign_ix, 
-                     perm_sign_arr = perm_sign_list[[1]],
-                     news_info = if(zr_yes || is.null(news_rest)) c(0,0,0) else news_rest)
-    rot_out <- do.call(search_rotations_cpp, arg_list)
-    
-    # Multiply by Givens matrix if zero restrictions imposed
-    if(zr_yes){
-      arg_list$ort_mat <- rot_out$omat%*%zero_rest(rot_out$irf_tmp[,,1], zr_ix)
-      arg_list$perm_sign_arr <- perm_sign_list[[2]]
-      if(!is.null(news_rest)) arg_list$news_info <- news_rest
-      rot_out <- do.call(search_rotations_cpp, arg_list)
-    }
-    
-    # Additionally, check moment restrictions of the resulting shocks if applicable
-    if(rot_out$success && !is.null(rest_mom)){
-      shock_tmp <- t(solve(w_mat%*%rot_out$omat, t(emp_innov)))
-      test_stat <- apply(X = shock_tmp[, rest_mom$test_shocks, drop=FALSE], 
-                         MARGIN = 2, 
-                         FUN = robust_hmoms, 
-                         type = rest_mom$type)
-      rot_out$success <- all(test_stat > rest_mom$threshold)
-    }
+    # Loop over n-1 columns, the last two must be rotated together
+    for(j in 1:(nvar-1)){
 
+      ort_tmp <- if(j==1) diag(nvar) else rot_out$omat
+      if(j==1 || rot_out$success) sub_ix <- 0
+      while(sub_ix < sub_max){
+        
+        if(length(arg_list_std[[j]]$sign_ix)>0){
+          # Draw random orthgonal matrix using QR decomposition
+          qr_obj <- qr(matrix(rnorm((nvar-j+1)^2), nvar-j+1, nvar-j+1))
+          qr_q <- qr.Q(qr_obj)
+          qr_r <- qr.R(qr_obj)
+          ort_mat <- diag(nvar)
+          # Ensure uniqueness
+          ort_mat[j:nvar, j:nvar] <- qr_q%*%diag(sign(diag(qr_r)))
+          # Collect arguments for cpp function
+          arg_list_std[[j]]$ort_mat <- ort_tmp%*%ort_mat
+          rot_out <- do.call(search_rotations_cpp, arg_list_std[[j]])
+        }
+        # Impose zero restriction if applicable
+        if(zr_yes){
+          # Does the column contain zero restriction?
+          zr_j <- zr_ix[2] == j || (j == nvar-1 && zr_ix[2] == nvar)
+          if(zr_j){
+            givens_rotation <- zero_rest(rot_out$irf_tmp[,,1], zr_ix)
+            arg_list_zero$ort_mat <- rot_out$omat%*%givens_rotation
+            rot_out <- do.call(search_rotations_cpp, arg_list_zero)
+          }
+        }
+
+        # Check news normalization if applicable
+        if(!is.null(news_rest) && rot_out$success){
+          # Is the column subject to a news normalization?
+          news_j <- news_rest[3] == j || (j == nvar - 1 && news_rest[3] == nvar)
+          if(news_j){
+            arg_list_news$ort_mat <- rot_out$omat
+            rot_out <- do.call(search_rotations_cpp, arg_list_news)
+          }
+        }
+        sub_ix <- if(rot_out$success) sub_max else sub_ix + 1
+      }
+    }
+    
     if(rot_out$success){
-      # Save results 
-      shock_arr[, , i] <- shock_tmp
-      imp_arr[, , , i] <- rot_out$irf_tmp
-      # Increase loop index if restrictions satisfied
-      i <- i + 1
-      if(verbose){
-        # progress bar
-        grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
-        if(i %in% grid_check) cat(".")
-        if(i %in% grid_check[seq(5, 20, by=5)]) cat(paste0(100*i/ndraws, "%"))
-        if(i == grid_check[length(grid_check)]) cat("\n")
+      
+      sort_back <- t(diag(nvar)[,sort_vec])
+      shock_tmp <- t(solve(w_mat%*%rot_out$omat, t(emp_innov)))%*%sort_back
+      if(!is.null(rest_mom)){
+      # Additionally, check moment restrictions of the resulting shocks if applicable
+        test_stat <- apply(X = shock_tmp[, rest_mom$test_shocks, drop=FALSE], 
+                           MARGIN = 2, 
+                           FUN = robust_hmoms, 
+                           type = rest_mom$type)
+        rot_out$success <- all(test_stat > rest_mom$threshold)
+      }
+      if(rot_out$success){
+        # Save results 
+        shock_arr[, , i] <- shock_tmp
+        imp_arr[, , , i] <- apply(rot_out$irf_tmp, 3, function(x) x%*%sort_back)
+        # Increase loop index if restrictions satisfied
+        i <- i + 1
+        if(verbose){
+          # progress bar
+          grid_check <- seq((ndraws/20), ndraws, by=ndraws/20)
+          if(i %in% grid_check) cat(".")
+          if(i %in% grid_check[seq(5, 20, by=5)]) cat(paste0(100*i/ndraws, "%"))
+          if(i == grid_check[length(grid_check)]) cat("\n")
+        }
       }
     }
     # Update maximum draws counter
@@ -739,7 +820,7 @@ if(incl_rcpp){
     arma::mat ort_temp(size(ort_mat)), dg_rest(sign_ix.n_elem, sign_ix.n_elem);
     arma::colvec irf_vec(chol_irf.n_elem), irf_vec_sub(sign_ix.n_elem);
     arma::colvec news_resp(chol_irf.n_slices), abs_news_resp(chol_irf.n_slices);
-    double news_rest = news_info[0], row_ix = news_info[1]-1, col_ix = news_info[2]-1;
+    double news_rest = news_info[0], row_ix = news_info[1] - 1, col_ix = news_info[2] - 1;
     
     // subset restrictions and place them on main diagonal of diagonal matrix
     arma::colvec rest_vec = arma::vectorise(rest_arr);
@@ -793,6 +874,57 @@ if(incl_rcpp){
   }'
   )
 
+}
+
+find_sub_rot <- function(rot_out, rest_mat, news_rest, zr_yes, n_times){
+  
+  i <- 0
+  rest_stacked <- apply(rest_mat, 2, c)
+  nvar  <- dim(rot_out$irf_tmp)[1]
+  sign_ix <- which(rest_mat!=0)
+  while(i < n_times){
+    irf_stacked <- apply(rot_out$irf_tmp[,,1:dim(rest_mat)[3]], 2, c)
+    col_ok <- rep(NA, nvar)
+    for(j in 1:nvar){
+      check_j <- sum(irf_stacked[,j]*rest_stacked[,j]>0, na.rm=TRUE)
+      n_rest_j <- sum(rest_stacked[,j]!=0, na.rm=TRUE)
+      col_ok[j] <- check_j==n_rest_j
+    }
+    
+    n_col_ok <- sum(col_ok)
+    if(n_col_ok > 0 && sum(n_col_ok) < nvar - 1){
+      ort_tmp <- diag(nvar)
+      # Generate random orth. matrix using QR decomp
+      qr_obj <- qr(matrix(rnorm((nvar - n_col_ok)^2), 
+                          nrow = nvar - n_col_ok, 
+                          ncol = nvar - n_col_ok)
+                   )
+      qr_q <- qr.Q(qr_obj)
+      qr_r <- qr.R(qr_obj)
+      # Ensure uniqueness
+      ort_tmp[!col_ok, !col_ok] <- qr_q%*%diag(sign(diag(qr_r)))
+      perm_sign_arr <- get_perm_sign_mat(nvar, 
+                                         free_perm = which(!col_ok), 
+                                         free_sign = which(!col_ok)) %>% 
+        abind::abind(along=3)
+      # Collect arguments for cpp function
+      arg_list <- list(chol_irf = rot_out$irf_tmp,
+                       ort_mat = rot_out$omat%*%ort_tmp, 
+                       rest_arr = rest_mat, 
+                       sign_ix = sign_ix, 
+                       perm_sign_arr = perm_sign_arr, 
+                       news_info = if(zr_yes || is.null(news_rest)) c(0,0,0) else news_rest)
+      rot_this <- do.call(search_rotations_cpp, arg_list)
+      if(rot_out$success){
+        i <- n_times 
+        rot_out <- rot_this
+      } else{ 
+        i <- i + 1
+      }
+    } else{
+      return(rot_out)
+    }
+  }
 }
 
 
@@ -923,20 +1055,13 @@ get_qqplots <- function(x)
   for(j in 1:ncol(x)){
     df <- data.frame(y = x[,j])
     p <- ggplot(df, aes(sample = y))
+    title_j <- paste0("t,", j)
     p <- p + 
       stat_qq() + 
       stat_qq_line() +
       ylab("") +
       xlab("") +
-      if(j==1){
-        ggtitle(bquote(u[1]))
-      } else if (j==2){
-        ggtitle(bquote(u[2]))
-      } else if (j==3){
-        ggtitle(bquote(u[3]))
-      } else if (j==4){
-        ggtitle(bquote(u[4]))
-      }
+      ggtitle(bquote(epsilon[.(title_j)]))
     plot_list[[j]] <- p + theme(plot.title = element_text(hjust = 0.5))
   }
   plot_list
@@ -1091,7 +1216,7 @@ get_struc_mat <- function(model_type = c("hp16_OBES",
     
   } else if(model_type == "wolf20_AEJ"){
     
-    if(is.null(param_list)) param_list <- list(beta = 0.995, kappa = 0.005,
+    if(is.null(param_list)) param_list <- list(beta = 0.995, kappa = 0.2,
                                                 phi_pi = 1.5, phi_y = 0.1,
                                                 sigma_d = 1.6, sigma_s = 0.95, sigma_m = 0.23)
     param_vec <- c("beta", "kappa",
@@ -1425,16 +1550,15 @@ get_perm_sign_mat <- function(nvar, free_perm = 1:nvar, free_sign = 1:nvar){
 
 
 fry_pagan_mt <- function(irf_arr, 
-                         rest_mat = NULL, 
+                         tgt_shocks = NULL, 
                          ct_hor = dim(irf_arr)[3], 
                          qt = 0.5){
 
   # Check if the median target is calculated only wrt to the restricted shocks
-  if(is.null(rest_mat)){
+  if(is.null(tgt_shocks)){
     tgt_shocks <- 1:dim(irf_arr)[2] 
-  } else {
-    tgt_shocks <- which(apply(rest_mat, 2, function(x) any(is.finite(x))))
   }
+  
   # Calculate the median scaled by respective standard deviation across draws
   scaled_irf_qt <- apply(X = irf_arr[, tgt_shocks, 1:ct_hor, , drop=FALSE], 
                          MARGIN = c(1, 2, 3), 
